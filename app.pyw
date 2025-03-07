@@ -1,8 +1,9 @@
 import tkinter as tk
 from tkinter import messagebox
-from datetime import datetime
+from datetime import datetime, timedelta
 import openpyxl
 import os
+from tkcalendar import Calendar, DateEntry
 
 
 def cargar_excel():
@@ -207,7 +208,14 @@ entrada_horas.pack(pady=5)
 tk.Label(
     root, text="Ingrese Fecha de Falta:", font=("Arial", 12, "bold"), bg="#f0f0f0"
 ).pack(pady=5)
-entrada_fecha_falta = tk.Entry(root, font=("Arial", 12))
+entrada_fecha_falta = DateEntry(
+    root,
+    font=("Arial", 12),
+    date_pattern="dd/mm/yyyy",
+    state="readonly",
+    maxdate=datetime.today() - timedelta(days=1),
+    locale="es",
+)
 entrada_fecha_falta.pack(pady=5)
 
 # Boton de registrar recuperacion
