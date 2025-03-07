@@ -145,29 +145,33 @@ def registrar_recuperacion(event):
     )
 
 
-# Interfaz gráfica mejorada
+# Interfaz gráfica
 root = tk.Tk()
 root.title("Gestión de Asesores")
 root.geometry("400x500")
 root.configure(bg="#f0f0f0")
+
+# Atajos de teclado
 root.bind("<Return>", registrar_entrada)
 root.bind("<KP_Enter>", registrar_entrada)
 root.bind("<Control_R>", registrar_salida)
 root.bind("<Alt_L>", registrar_recuperacion)
 
-
+# Entrada de matrícula
 tk.Label(
     root, text="Ingrese Matrícula:", font=("Arial", 12, "bold"), bg="#f0f0f0"
 ).pack(pady=5)
 entrada_matricula = tk.Entry(root, font=("Arial", 12))
 entrada_matricula.pack(pady=5)
 
+# Boton de registrar entrada
 btn_entrada = tk.Button(
     root, text="Registrar Entrada (Enter)", font=("Arial", 12), bg="#4CAF50", fg="white"
 )
 btn_entrada.bind("<Button-1>", registrar_entrada)
 btn_entrada.pack(pady=5, fill=tk.X)
 
+# Boton de registrar salida
 btn_salida = tk.Button(
     root,
     text="Registrar Salida (RControl)",
@@ -178,18 +182,21 @@ btn_salida = tk.Button(
 btn_salida.bind("<Button-1>", registrar_salida)
 btn_salida.pack(pady=5, fill=tk.X)
 
+# Entrada de horas a recuperar
 tk.Label(
     root, text="Ingrese Horas a Recuperar:", font=("Arial", 12, "bold"), bg="#f0f0f0"
 ).pack(pady=5)
 entrada_horas = tk.Entry(root, font=("Arial", 12))
 entrada_horas.pack(pady=5)
 
+# Entrada de fecha de falta
 tk.Label(
     root, text="Ingrese Fecha de Falta:", font=("Arial", 12, "bold"), bg="#f0f0f0"
 ).pack(pady=5)
 entrada_fecha_falta = tk.Entry(root, font=("Arial", 12))
 entrada_fecha_falta.pack(pady=5)
 
+# Boton de registrar recuperacion
 btn_recuperar = tk.Button(
     root,
     text="Registrar Recuperación (LAlt)",
@@ -200,4 +207,5 @@ btn_recuperar = tk.Button(
 btn_recuperar.bind("<Button-1>", registrar_recuperacion)
 btn_recuperar.pack(pady=5, fill=tk.X)
 
+# Iniciar la aplicación
 root.mainloop()
