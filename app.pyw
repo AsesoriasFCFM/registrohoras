@@ -6,6 +6,12 @@ import os
 from tkcalendar import Calendar, DateEntry
 
 
+def borrar_inputs():
+    entrada_matricula.delete(0, tk.END)
+    entrada_horas.delete(0, tk.END)
+    entrada_fecha_falta.set_date(datetime.today() - timedelta(days=1))
+
+
 def cargar_excel():
     """Carga el archivo Excel o lo crea si no existe."""
     archivo = "Asesores.xlsx"
@@ -86,6 +92,7 @@ def registrar_entrada(event):
     messagebox.showinfo(
         "Éxito", f"Entrada registrada para {asesor[0]} a las {hora_entrada}"
     )
+    borrar_inputs()
 
 
 def registrar_salida(event):
@@ -106,6 +113,7 @@ def registrar_salida(event):
                 mins = (diff % 3600) // 60
                 segs = diff % 60
                 messagebox.showinfo("Éxito", f"Salida registrada con éxito para {row[0].value}, realizó {int(horas):02}:{int(mins):02}:{int(segs):02} horas")
+                borrar_inputs()
                 return
             except PermissionError:
                 messagebox.showerror(
@@ -136,6 +144,7 @@ def registrar_recuperacion(event):
             try:
                 wb.save("Asesores.xlsx")
                 messagebox.showinfo("Éxito", "Recuperación registrada correctamente.")
+                borrar_inputs()
                 return
             except PermissionError:
                 messagebox.showerror(
