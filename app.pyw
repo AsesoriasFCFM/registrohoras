@@ -162,6 +162,13 @@ tk.Label(
     root, text="Ingrese Matrícula:", font=("Arial", 12, "bold"), bg="#f0f0f0"
 ).pack(pady=5)
 entrada_matricula = tk.Entry(root, font=("Arial", 12))
+entrada_matricula.config(
+    validate="key",
+    validatecommand=(
+        root.register(lambda P: (P.isdigit() or P == "") and len(P) <= 7),
+        "%P",
+    ),
+)
 entrada_matricula.pack(pady=5)
 
 # Boton de registrar entrada
