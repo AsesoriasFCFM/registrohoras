@@ -3,7 +3,7 @@ from tkinter import messagebox
 from datetime import datetime, timedelta
 import openpyxl
 import os
-from tkcalendar import Calendar, DateEntry
+from tkcalendar import DateEntry
 
 
 def borrar_inputs():
