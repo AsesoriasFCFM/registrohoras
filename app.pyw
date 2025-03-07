@@ -194,6 +194,13 @@ tk.Label(
     root, text="Ingrese Horas a Recuperar:", font=("Arial", 12, "bold"), bg="#f0f0f0"
 ).pack(pady=5)
 entrada_horas = tk.Entry(root, font=("Arial", 12))
+entrada_horas.config(
+    validate="key",
+    validatecommand=(
+        root.register(lambda P: (P.isdigit() or P == "") and len(P) <= 1),
+        "%P",
+    ),
+)
 entrada_horas.pack(pady=5)
 
 # Entrada de fecha de falta
