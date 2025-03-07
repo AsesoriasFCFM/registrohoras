@@ -9,11 +9,11 @@ def cargar_excel():
     """Carga el archivo Excel o lo crea si no existe."""
     archivo = "Asesores.xlsx"
     if not os.path.exists(archivo):
-        wb = openpyxl.Workbook()
-        ws = wb.active
-        ws.title = "Asesores"
-        ws.append(["Nombre", "Matrícula", "Carrera"])
-        wb.save(archivo)
+        messagebox.showerror(
+            "Error",
+            "El archivo Asesores.xlsx no existe. Por favor, crea el archivo antes de continuar. El archivo debe contener una hoja llamada 'Asesores' con los datos de los asesores (Nombre, Matricula, Carrera, Programa).",
+        )
+        return
     return openpyxl.load_workbook(archivo)
 
 
