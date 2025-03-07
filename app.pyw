@@ -101,7 +101,11 @@ def registrar_salida(event):
 
             try:
                 wb.save("Asesores.xlsx")
-                messagebox.showinfo("Éxito", "Salida registrada con éxito")
+                diff = (datetime.strptime(row[3].value, '%H:%M:%S') - datetime.strptime(row[2].value, '%H:%M:%S')).total_seconds()
+                horas = diff // 3600
+                mins = (diff % 3600) // 60
+                segs = diff % 60
+                messagebox.showinfo("Éxito", f"Salida registrada con éxito para {row[0].value}, realizó {int(horas):02}:{int(mins):02}:{int(segs):02} horas")
                 return
             except PermissionError:
                 messagebox.showerror(
@@ -155,7 +159,7 @@ root.configure(bg="#f0f0f0")
 # Atajos de teclado
 root.bind("<Return>", registrar_entrada)
 root.bind("<KP_Enter>", registrar_entrada)
-root.bind("<Control_R>", registrar_salida)
+root.bind("<Shift_R>", registrar_salida)
 root.bind("<Alt_L>", registrar_recuperacion)
 
 # Entrada de matrícula
@@ -182,7 +186,7 @@ btn_entrada.pack(pady=5, fill=tk.X)
 # Boton de registrar salida
 btn_salida = tk.Button(
     root,
-    text="Registrar Salida (RControl)",
+    text="Registrar Salida (RShift)",
     font=("Arial", 12),
     bg="#FF9800",
     fg="white",
