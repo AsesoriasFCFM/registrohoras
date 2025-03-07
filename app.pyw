@@ -101,7 +101,11 @@ def registrar_salida(event):
 
             try:
                 wb.save("Asesores.xlsx")
-                messagebox.showinfo("Éxito", "Salida registrada con éxito")
+                diff = (datetime.strptime(row[3].value, '%H:%M:%S') - datetime.strptime(row[2].value, '%H:%M:%S')).total_seconds()
+                horas = diff // 3600
+                mins = (diff % 3600) // 60
+                segs = diff % 60
+                messagebox.showinfo("Éxito", f"Salida registrada con éxito para {row[0].value}, realizó {int(horas):02}:{int(mins):02}:{int(segs):02} horas")
                 return
             except PermissionError:
                 messagebox.showerror(
