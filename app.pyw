@@ -155,7 +155,7 @@ root.configure(bg="#f0f0f0")
 # Atajos de teclado
 root.bind("<Return>", registrar_entrada)
 root.bind("<KP_Enter>", registrar_entrada)
-root.bind("<Control_R>", registrar_salida)
+root.bind("<Shift_R>", registrar_salida)
 root.bind("<Alt_L>", registrar_recuperacion)
 
 # Entrada de matrícula
@@ -182,7 +182,7 @@ btn_entrada.pack(pady=5, fill=tk.X)
 # Boton de registrar salida
 btn_salida = tk.Button(
     root,
-    text="Registrar Salida (RControl)",
+    text="Registrar Salida (RShift)",
     font=("Arial", 12),
     bg="#FF9800",
     fg="white",
