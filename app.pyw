@@ -3,8 +3,23 @@ from tkinter import messagebox
 from datetime import datetime, timedelta
 import openpyxl
 import os
+import logging
+import sys
 from tkcalendar import DateEntry
 
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    filename='app.log'
+)
+
+logger = logging.getLogger(__name__)
+
+def capturar_excepcion(exc_type, exc_value, exc_traceback):
+    logger.error("Excepcion no capturada", exc_info=(exc_type, exc_value, exc_traceback))
+
+
+sys.excepthook = capturar_excepcion
 
 def borrar_inputs():
     entrada_matricula.delete(0, tk.END)
