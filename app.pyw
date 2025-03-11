@@ -92,6 +92,10 @@ def registrar_entrada(event):
     messagebox.showinfo(
         "Éxito", f"Entrada registrada para {asesor[0]} a las {hora_entrada}"
     )
+
+    if entrada_horas.get().strip():
+        registrar_recuperacion(event)
+        
     borrar_inputs()
 
 
