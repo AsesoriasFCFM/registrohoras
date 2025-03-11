@@ -97,6 +97,10 @@ def registrar_entrada(event):
 
 def registrar_salida(event):
     matricula = entrada_matricula.get().strip()
+
+    if entrada_horas.get().strip():
+        registrar_recuperacion(event)
+
     wb = cargar_excel()
     inicializar_excel()  # Asegurar que la hoja del día existe
     fecha_hoy = datetime.today().strftime("%Y-%m-%d")
