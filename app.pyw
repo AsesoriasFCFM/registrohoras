@@ -67,8 +67,8 @@ def inicializar_excel():
 
 def registrar_entrada(event):
     matricula = entrada_matricula.get().strip()
-    wb = cargar_excel()
     inicializar_excel()  # Asegurar que la hoja del día existe
+    wb = cargar_excel()
     ws_asesores = wb["Asesores"]
 
     asesor = None
