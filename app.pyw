@@ -105,7 +105,7 @@ def registrar_entrada(event):
         return
 
     messagebox.showinfo(
-        "Éxito", f"Entrada registrada para {asesor[0]} a las {hora_entrada}"
+        "Éxito", f"Entrada registrada para {asesor[0]} ({asesor[2]}) a las {hora_entrada}"
     )
 
     if entrada_horas.get().strip():
