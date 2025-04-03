@@ -78,6 +78,14 @@ def registrar_entrada(event):
             break
 
     if not asesor:
+        wbt = openpyxl.load_workbook("Talentos.xlsx")
+        ws_talentos = wbt["Talentos"]
+
+        for row in ws_talentos.iter_rows(min_row=2, values_only=True):
+            if str(row[1]).strip() == matricula:
+                messagebox.showwarning("Programa equivocado", "Has ingresado la matrícula de un talento, usa el otro programa para registrar")
+                return
+        
         messagebox.showerror("Error", f"Matrícula '{matricula}' no encontrada")
         return
 
@@ -143,7 +151,15 @@ def registrar_salida(event):
                     "Error",
                     "Acceso denegado, asegurate de que el archivo Asesores.xlsx no este abierto",
                 )
-                return
+                return             
+                
+    wbt = openpyxl.load_workbook("Talentos.xlsx")
+    ws_talentos = wbt["Talentos"]
+
+    for row in ws_talentos.iter_rows(min_row=2, values_only=True):
+        if str(row[1]).strip() == matricula:
+            messagebox.showwarning("Programa equivocado", "Has ingresado la matrícula de un talento, usa el otro programa para registrar")
+            return
 
     messagebox.showerror(
         "Error", "No se encontró una entrada pendiente para esta matrícula"
