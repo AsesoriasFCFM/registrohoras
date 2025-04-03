@@ -1,11 +1,10 @@
 import tkinter as tk
 from tkinter import messagebox
-from datetime import datetime, timedelta
+from datetime import datetime
 import openpyxl
 import os
 import logging
 import sys
-from tkcalendar import DateEntry
 
 logging.basicConfig(
     level=logging.DEBUG,
