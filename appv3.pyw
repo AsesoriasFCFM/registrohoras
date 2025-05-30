@@ -11,13 +11,13 @@ from tkcalendar import DateEntry
 import sqlite3
 import calendar
 
-NOMBRE_ARCHIVO_EXCEL = "Reporte_Tutorias.xlsx"
-NOMBRE_BD = "datos_tutores.db"
+NOMBRE_ARCHIVO_EXCEL = "Reporte_Asistencias.xlsx"
+NOMBRE_BD = "datos_asesores.db"
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    filename="app_tutores.log",
+    filename="app_asesores.log",
 )
 logger = logging.getLogger(__name__)
 
@@ -28,7 +28,7 @@ def capturar_excepcion(exc_type, exc_value, exc_traceback):
     )
     messagebox.showerror(
         "Error Inesperado",
-        "Ha ocurrido un error inesperado.\nRevise app_tutores.log para más detalles.",
+        "Ha ocurrido un error inesperado.\nRevise app_asesores.log para más detalles.",
     )
 
 
@@ -54,8 +54,7 @@ def validar_horas_recuperar(valor_nuevo):
     if valor_nuevo.count(".") > 1:
         return False
     if "." in valor_nuevo and len(valor_nuevo.split(".")[1]) > 1:
-        return False  # Solo un decimal
-    # Validar rango al enviar, no en tiempo real para permitir escribir "8."
+        return False
     return True
 
 
@@ -83,18 +82,17 @@ def validar_anio(valor_nuevo):
 def inicializar_bd():
     conn = sqlite3.connect(NOMBRE_BD)
     cursor = conn.cursor()
-    # Tabla de Tutores
     cursor.execute(
         """
-        CREATE TABLE IF NOT EXISTS tutores (
+        CREATE TABLE IF NOT EXISTS asesores (
             matricula TEXT PRIMARY KEY,
             nombre TEXT NOT NULL,
             carrera TEXT NOT NULL,
-            programa TEXT NOT NULL
+            programa TEXT NOT NULL,
+            activo INTEGER DEFAULT 1 NOT NULL 
         )
     """
     )
-    # Tabla de Registros de Asistencia
     cursor.execute(
         """
         CREATE TABLE IF NOT EXISTS registros_asistencia (
@@ -105,15 +103,27 @@ def inicializar_bd():
             horas_recuperadas TEXT,
             fecha_falta_recuperada TEXT,
             fecha_registro TEXT NOT NULL,
-            nota TEXT,  -- << NUEVA COLUMNA PARA NOTAS >>
-            FOREIGN KEY (matricula) REFERENCES tutores (matricula)
+            nota TEXT,
+            FOREIGN KEY (matricula) REFERENCES asesores (matricula) ON UPDATE CASCADE ON DELETE RESTRICT
         )
     """
-    )
-    # Verificar si la columna 'nota' existe y añadirla si no (para actualizaciones)
+    )  # Cambiado ON DELETE CASCADE a ON DELETE RESTRICT para mayor seguridad del historial
+
+    # Verificar y añadir columna 'activo' a 'asesores' si no existe
+    cursor.execute("PRAGMA table_info(asesores)")
+    columnas_asesores = [info[1] for info in cursor.fetchall()]
+    if "activo" not in columnas_asesores:
+        cursor.execute(
+            "ALTER TABLE asesores ADD COLUMN activo INTEGER DEFAULT 1 NOT NULL"
+        )
+        logger.info(
+            "Columna 'activo' añadida a la tabla 'asesores' con valor por defecto 1."
+        )
+
+    # Verificar y añadir columna 'nota' a 'registros_asistencia' si no existe
     cursor.execute("PRAGMA table_info(registros_asistencia)")
-    columnas = [info[1] for info in cursor.fetchall()]
-    if "nota" not in columnas:
+    columnas_registros = [info[1] for info in cursor.fetchall()]
+    if "nota" not in columnas_registros:
         cursor.execute("ALTER TABLE registros_asistencia ADD COLUMN nota TEXT")
         logger.info("Columna 'nota' añadida a la tabla 'registros_asistencia'.")
 
@@ -128,7 +138,7 @@ def obtener_conexion_bd():
     return conn
 
 
-# --- Función para Regenerar el Excel desde la BD (sin cambios relevantes aquí por ahora) ---
+# --- Función para Regenerar el Excel desde la BD ---
 def regenerar_excel_desde_bd(mostrar_mensaje_exito=False):
     logger.info(f"Regenerando reporte Excel: {NOMBRE_ARCHIVO_EXCEL}")
     wb = openpyxl.Workbook()
@@ -149,7 +159,7 @@ def regenerar_excel_desde_bd(mostrar_mensaje_exito=False):
         bottom=Side(style="thin"),
     )
 
-    ws_asesores = wb.create_sheet(title="Asesores")
+    ws_asesores = wb.create_sheet(title="Asesores Activos")  # Cambiado título de hoja
     cabeceras_asesores = ["Nombre", "Matrícula", "Carrera", "Programa"]
     ws_asesores.append(cabeceras_asesores)
     for col_idx, header_title in enumerate(cabeceras_asesores, 1):
@@ -160,8 +170,8 @@ def regenerar_excel_desde_bd(mostrar_mensaje_exito=False):
         cell.border = thin_border
 
     cursor.execute(
-        "SELECT nombre, matricula, carrera, programa FROM tutores ORDER BY programa, carrera, nombre"
-    )
+        "SELECT nombre, matricula, carrera, programa FROM asesores WHERE activo = 1 ORDER BY programa, carrera, nombre"
+    )  # Solo activos
     for idx, row_data in enumerate(cursor.fetchall(), 2):
         ws_asesores.append(
             [
@@ -176,21 +186,21 @@ def regenerar_excel_desde_bd(mostrar_mensaje_exito=False):
             ws_asesores.cell(row=idx, column=col_idx).alignment = Alignment(
                 vertical="center", wrap_text=True
             )
-    logger.info("Hoja 'Asesores' generada.")
+    logger.info("Hoja 'Asesores Activos' generada.")
 
     cursor.execute(
         "SELECT DISTINCT fecha_registro FROM registros_asistencia ORDER BY fecha_registro DESC"
     )
     fechas_distintas = [row["fecha_registro"] for row in cursor.fetchall()]
     cabeceras_diarias = [
-        "Nombre",
+        "Nombre Asesor",
         "Matrícula",
         "Hora de Entrada",
-        "Hora de Salida",
+        "Hora de Salida",  # Cambiado "Nombre"
         "Horas Trabajadas",
         "Horas Recuperadas",
         "Fecha Falta (Recup.)",
-        "Nota",  # <-- AÑADIR NOTA A CABECERAS DIARIAS (opcional, pero puede ser útil)
+        "Nota",
         "Carrera",
         "Programa",
     ]
@@ -212,14 +222,14 @@ def regenerar_excel_desde_bd(mostrar_mensaje_exito=False):
 
         cursor.execute(
             """
-            SELECT ra.*, t.nombre, t.carrera, t.programa
+            SELECT ra.*, a.nombre, a.carrera, a.programa
             FROM registros_asistencia ra
-            JOIN tutores t ON ra.matricula = t.matricula
-            WHERE ra.fecha_registro = ?
+            JOIN asesores a ON ra.matricula = a.matricula 
+            WHERE ra.fecha_registro = ? 
             ORDER BY ra.hora_entrada, ra.matricula 
         """,
             (fecha_registro_str,),
-        )
+        )  # Ya no filtra por a.activo = 1 aquí, para mostrar historial completo
 
         for idx, row_data in enumerate(cursor.fetchall(), 2):
             horas_trabajadas_str = ""
@@ -233,7 +243,7 @@ def regenerar_excel_desde_bd(mostrar_mensaje_exito=False):
                     h = int(diff // 3600)
                     m = int((diff % 3600) // 60)
                     s = int(diff % 60)
-                    horas_trabajadas_str = f"{h:02}:{m:02}:{s:02}"
+                    horas_trabajadas_str = f"{h:02d}:{m:02d}:{s:02d}"
                 except ValueError:
                     horas_trabajadas_str = "Error Calc."
 
@@ -246,7 +256,7 @@ def regenerar_excel_desde_bd(mostrar_mensaje_exito=False):
                     horas_trabajadas_str,
                     row_data["horas_recuperadas"],
                     row_data["fecha_falta_recuperada"],
-                    row_data["nota"],  # <-- AÑADIR VALOR DE NOTA
+                    row_data["nota"],
                     row_data["carrera"],
                     row_data["programa"],
                 ]
@@ -256,7 +266,7 @@ def regenerar_excel_desde_bd(mostrar_mensaje_exito=False):
                 ws_dia.cell(row=idx, column=col_idx).alignment = Alignment(
                     vertical="center", wrap_text=True
                 )
-        logger.info(f"Hoja generada para fecha: {titulo_hoja}")
+        logger.info(f"Hoja de asistencia generada para fecha: {titulo_hoja}")
     conn.close()
 
     for nombre_hoja in wb.sheetnames:
@@ -312,7 +322,7 @@ def limpiar_campos():
     entrada_matricula.delete(0, tk.END)
     entrada_horas_rec.delete(0, tk.END)
     entrada_fecha_falta_rec.set_date(datetime.today() - timedelta(days=1))
-    entrada_nota.delete(0, tk.END)  # LIMPIAR CAMPO DE NOTA
+    entrada_nota.delete(0, tk.END)
     entrada_matricula.focus_set()
 
 
@@ -325,13 +335,14 @@ def registrar_entrada_accion(evento=None):
     conn = obtener_conexion_bd()
     cursor = conn.cursor()
     cursor.execute(
-        "SELECT nombre, carrera, programa FROM tutores WHERE matricula = ?",
+        "SELECT nombre, carrera, programa FROM asesores WHERE matricula = ? AND activo = 1",
         (matricula,),
     )
     asesor = cursor.fetchone()
     if not asesor:
         messagebox.showerror(
-            "Error de Matrícula", f"Matrícula '{matricula}' no encontrada."
+            "Error de Matrícula",
+            f"Matrícula '{matricula}' no encontrada o asesor inactivo.",
         )
         conn.close()
         return
@@ -432,18 +443,18 @@ def registrar_salida_accion(evento=None):
     fecha_hoy_str = datetime.today().strftime("%Y-%m-%d")
     cursor.execute(
         """
-        SELECT id, hora_entrada, t.nombre, t.carrera, t.programa
-        FROM registros_asistencia ra JOIN tutores t ON ra.matricula = t.matricula
-        WHERE ra.matricula = ? AND ra.fecha_registro = ? AND ra.hora_salida IS NULL
+        SELECT id, hora_entrada, a.nombre, a.carrera, a.programa
+        FROM registros_asistencia ra JOIN asesores a ON ra.matricula = a.matricula
+        WHERE ra.matricula = ? AND a.activo = 1 AND ra.fecha_registro = ? AND ra.hora_salida IS NULL
         ORDER BY ra.id DESC LIMIT 1
     """,
         (matricula, fecha_hoy_str),
-    )
+    )  # Asegurarse que el asesor esté activo
     registro_abierto = cursor.fetchone()
     if not registro_abierto:
         messagebox.showerror(
             "Error de Registro",
-            "No se encontró una entrada pendiente para esta matrícula hoy.",
+            "No se encontró una entrada pendiente para este asesor activo hoy.",
         )
         conn.close()
         return
@@ -451,9 +462,7 @@ def registrar_salida_accion(evento=None):
     hora_salida_str = datetime.now().strftime("%H:%M:%S")
     nota_val = entrada_nota.get().strip()
     if not nota_val:
-        nota_val = None  # Si la nota está vacía, no actualizamos la nota existente (a menos que se quiera borrar)
-    # Para borrar una nota existente, el usuario tendría que poner un espacio o algo y luego borrarlo.
-    # O, si se quiere que una nota vacía BORRE la nota existente: if not nota_val: nota_val = "" (cadena vacía)
+        nota_val = None
 
     horas_rec_val_str = entrada_horas_rec.get().strip()
     fecha_falta_val = None
@@ -485,7 +494,7 @@ def registrar_salida_accion(evento=None):
             update_fields.append("horas_recuperadas = ?")
             update_fields.append("fecha_falta_recuperada = ?")
             params.extend([horas_rec_val_str, fecha_falta_val])
-        if nota_val is not None:  # Solo actualizar nota si se ingresó algo
+        if nota_val is not None:
             update_fields.append("nota = ?")
             params.append(nota_val)
 
@@ -507,7 +516,7 @@ def registrar_salida_accion(evento=None):
         s = int(diff % 60)
 
         msg = f"Salida registrada para {registro_abierto['nombre']}."
-        msg += f"\nTiempo trabajado: {h:02}:{m:02}:{s:02}."
+        msg += f"\nTiempo trabajado: {h:02d}:{m:02d}:{s:02d}."
         if nota_val:
             msg += f"\nNota: {nota_val}"
         if horas_rec_val_str:
@@ -515,7 +524,7 @@ def registrar_salida_accion(evento=None):
 
         messagebox.showinfo("Registro Exitoso", msg)
         logger.info(
-            f"Salida: {matricula} @{hora_salida_str}. Nota: '{nota_val or ''}'. Dur: {h:02}:{m:02}:{s:02}. Rec: {horas_rec_val_str or 'N/A'}"
+            f"Salida: {matricula} @{hora_salida_str}. Nota: '{nota_val or ''}'. Dur: {h:02d}:{m:02d}:{s:02d}. Rec: {horas_rec_val_str or 'N/A'}"
         )
         limpiar_campos()
         regenerar_excel_desde_bd()
@@ -569,11 +578,14 @@ def registrar_recuperacion_standalone_accion(evento=None):
 
     conn = obtener_conexion_bd()
     cursor = conn.cursor()
-    cursor.execute("SELECT nombre FROM tutores WHERE matricula = ?", (matricula,))
+    cursor.execute(
+        "SELECT nombre FROM asesores WHERE matricula = ? AND activo = 1", (matricula,)
+    )
     asesor = cursor.fetchone()
     if not asesor:
         messagebox.showerror(
-            "Error de Matrícula", f"Matrícula '{matricula}' no encontrada."
+            "Error de Matrícula",
+            f"Matrícula '{matricula}' no encontrada o asesor inactivo.",
         )
         conn.close()
         return
@@ -587,7 +599,7 @@ def registrar_recuperacion_standalone_accion(evento=None):
     if not registro_abierto:
         messagebox.showerror(
             "Sin Entrada Abierta",
-            "No se encontró una entrada abierta hoy para este asesor.",
+            "No se encontró una entrada abierta hoy para este asesor activo.",
         )
         conn.close()
         return
@@ -624,8 +636,17 @@ def registrar_recuperacion_standalone_accion(evento=None):
         conn.close()
 
 
-# --- Importar Tutores (sin cambios relevantes para notas aquí) ---
-def importar_tutores_desde_excel_dialogo():
+def importar_asesores_desde_excel_dialogo():
+    if not messagebox.askyesno(
+        "Confirmar Importación de Asesores",
+        "Esto actualizará la lista de asesores activos.\n"
+        "Los asesores no presentes en el archivo Excel serán marcados como INACTIVOS.\n"
+        "Los asesores presentes en el archivo serán creados (si no existen) o actualizados y marcados como ACTIVOS.\n"
+        "Los registros de asistencia existentes se conservarán.\n"
+        "¿Desea continuar?",
+    ):
+        return
+
     ruta_archivo_maestro = filedialog.askopenfilename(
         title="Seleccionar Archivo Maestro de Asesores (Excel)",
         filetypes=(("Archivos Excel", "*.xlsx *.xls"), ("Todos los archivos", "*.*")),
@@ -633,6 +654,7 @@ def importar_tutores_desde_excel_dialogo():
     if not ruta_archivo_maestro:
         return
 
+    conn = None
     try:
         wb_maestro = openpyxl.load_workbook(ruta_archivo_maestro, read_only=True)
         if "Asesores" not in wb_maestro.sheetnames:
@@ -645,8 +667,15 @@ def importar_tutores_desde_excel_dialogo():
 
         conn = obtener_conexion_bd()
         cursor = conn.cursor()
-        importados = 0
-        actualizados = 0
+
+        # Iniciar transacción
+        # conn.execute("BEGIN TRANSACTION;") # Opcional, para asegurar atomicidad
+
+        cursor.execute("UPDATE asesores SET activo = 0")
+        logger.info("Todos los asesores existentes han sido marcados como inactivos.")
+
+        insertados = 0
+        actualizados_reactivados = 0
         cabeceras_excel = [celda.value for celda in ws_maestro[1]]
         cabeceras_esperadas_map = {
             "Nombre": None,
@@ -671,31 +700,38 @@ def importar_tutores_desde_excel_dialogo():
             except ValueError:
                 messagebox.showerror(
                     "Error de Formato de Cabecera",
-                    f"La columna requerida '{cab_key}' no se encontró en la hoja 'Asesores'.\n"
-                    f"Cabeceras esperadas: Nombre, Matrícula/Matricula, Carrera, Programa.",
+                    f"La columna requerida '{cab_key}' no se encontró en la hoja 'Asesores'.",
                 )
-                conn.close()
-                return
+                if conn:
+                    conn.rollback()
+                    conn.close()
+                    return
 
         for num_fila, fila_valores in enumerate(
             ws_maestro.iter_rows(min_row=2, values_only=True), start=2
         ):
-            matricula_val = fila_valores[cabeceras_esperadas_map["Matrícula"]]
-            nombre_val = fila_valores[cabeceras_esperadas_map["Nombre"]]
-            carrera_val = fila_valores[cabeceras_esperadas_map["Carrera"]]
-            programa_val = fila_valores[cabeceras_esperadas_map["Programa"]]
+            try:  # En caso de que falten columnas en alguna fila del Excel
+                matricula_val = fila_valores[cabeceras_esperadas_map["Matrícula"]]
+                nombre_val = fila_valores[cabeceras_esperadas_map["Nombre"]]
+                carrera_val = fila_valores[cabeceras_esperadas_map["Carrera"]]
+                programa_val = fila_valores[cabeceras_esperadas_map["Programa"]]
+            except IndexError:
+                logger.warning(
+                    f"Importación: Saltando fila {num_fila}, número incorrecto de columnas."
+                )
+                continue
 
             if not matricula_val or not (
                 str(matricula_val).strip().isdigit()
                 and len(str(matricula_val).strip()) == 7
             ):
                 logger.warning(
-                    f"Importación: Saltando fila {num_fila}, matrícula '{matricula_val}' inválida (debe ser 7 números)."
+                    f"Importación: Saltando fila {num_fila}, matrícula '{matricula_val}' inválida."
                 )
                 continue
-            if not all([nombre_val, carrera_val, programa_val]):
+            if not all([nombre_val, carrera_val, programa_val]):  # Campos requeridos
                 logger.warning(
-                    f"Importación: Saltando fila {num_fila} para matrícula {matricula_val}, campos Nombre, Carrera o Programa vacíos."
+                    f"Importación: Saltando fila {num_fila} para matrícula {matricula_val}, campos requeridos vacíos."
                 )
                 continue
 
@@ -705,48 +741,57 @@ def importar_tutores_desde_excel_dialogo():
             programa_str = str(programa_val).strip()
 
             cursor.execute(
-                "SELECT matricula FROM tutores WHERE matricula = ?", (matricula_str,)
+                "SELECT matricula FROM asesores WHERE matricula = ?", (matricula_str,)
             )
-            existe = cursor.fetchone()
-            if existe:
+            asesor_existente = cursor.fetchone()
+            if asesor_existente:
                 cursor.execute(
-                    "UPDATE tutores SET nombre = ?, carrera = ?, programa = ? WHERE matricula = ?",
+                    "UPDATE asesores SET nombre = ?, carrera = ?, programa = ?, activo = 1 WHERE matricula = ?",
                     (nombre_str, carrera_str, programa_str, matricula_str),
                 )
-                actualizados += 1
+                actualizados_reactivados += 1
             else:
                 cursor.execute(
-                    "INSERT INTO tutores (matricula, nombre, carrera, programa) VALUES (?, ?, ?, ?)",
+                    "INSERT INTO asesores (matricula, nombre, carrera, programa, activo) VALUES (?, ?, ?, ?, 1)",
                     (matricula_str, nombre_str, carrera_str, programa_str),
                 )
-                importados += 1
+                insertados += 1
 
         conn.commit()
         messagebox.showinfo(
             "Importación Completa",
-            f"{importados} asesores nuevos importados.\n{actualizados} asesores existentes actualizados.",
+            f"{insertados} asesores nuevos importados y activados.\n"
+            f"{actualizados_reactivados} asesores existentes actualizados y/o reactivados.",
         )
         logger.info(
-            f"Importación: {importados} nuevos, {actualizados} actualizados desde {ruta_archivo_maestro}"
+            f"Importación: {insertados} nuevos activos, {actualizados_reactivados} actualizados/reactivados desde {ruta_archivo_maestro}"
         )
         regenerar_excel_desde_bd()
+    except sqlite3.Error as e_sql:  # Captura errores de SQLite específicamente
+        if conn:
+            conn.rollback()
+        messagebox.showerror(
+            "Error de Base de Datos Durante Importación", f"Ocurrió un error: {e_sql}"
+        )
+        logger.error(f"Error SQLite importando asesores: {e_sql}", exc_info=True)
     except Exception as e:
+        if conn:
+            conn.rollback()
         messagebox.showerror(
             "Error de Importación", f"Ocurrió un error al importar asesores: {e}"
         )
-        logger.error(f"Error importando tutores: {e}", exc_info=True)
+        logger.error(f"Error importando asesores: {e}", exc_info=True)
     finally:
-        if "conn" in locals() and conn:
-            conn.close()  # type: ignore
+        if conn:
+            conn.close()
 
 
-# --- Calcular Horas Mensuales (sin cambios relevantes para notas aquí) ---
 def calcular_horas_mensuales_accion():
     matricula = entrada_matricula.get().strip()
     if not (matricula.isdigit() and len(matricula) == 7):
         messagebox.showerror(
             "Matrícula Requerida",
-            "Por favor, ingrese la matrícula del tutor (7 números).",
+            "Por favor, ingrese la matrícula del asesor (7 números).",
         )
         return
 
@@ -773,21 +818,23 @@ def calcular_horas_mensuales_accion():
 
     conn = obtener_conexion_bd()
     cursor = conn.cursor()
-    cursor.execute("SELECT nombre FROM tutores WHERE matricula = ?", (matricula,))
-    tutor = cursor.fetchone()
-    if not tutor:
+    cursor.execute(
+        "SELECT nombre FROM asesores WHERE matricula = ? AND activo = 1", (matricula,)
+    )  # Solo asesores activos
+    asesor = cursor.fetchone()
+    if not asesor:
         messagebox.showerror(
-            "Tutor no Encontrado",
-            f"No se encontró al tutor con matrícula '{matricula}'.",
+            "Asesor no Encontrado",
+            f"No se encontró un asesor activo con matrícula '{matricula}'.",
         )
         conn.close()
         return
 
-    nombre_tutor = tutor["nombre"]
-    mes_fmt = f"{mes:02}"
+    nombre_asesor = asesor["nombre"]
+    mes_fmt = f"{mes:02d}"
     primer_dia_mes = f"{anio}-{mes_fmt}-01"
     ultimo_dia_mes_num = calendar.monthrange(anio, mes)[1]
-    ultimo_dia_mes = f"{anio}-{mes_fmt}-{ultimo_dia_mes_num:02}"
+    ultimo_dia_mes = f"{anio}-{mes_fmt}-{ultimo_dia_mes_num:02d}"
 
     cursor.execute(
         "SELECT hora_entrada, hora_salida, horas_recuperadas FROM registros_asistencia WHERE matricula = ? AND fecha_registro BETWEEN ? AND ?",
@@ -823,11 +870,11 @@ def calcular_horas_mensuales_accion():
     h_trab = int(total_segundos_trabajados // 3600)
     m_trab = int((total_segundos_trabajados % 3600) // 60)
     s_trab = int(total_segundos_trabajados % 60)
-    horas_trab_str = f"{h_trab:02}:{m_trab:02}:{s_trab:02}"
+    horas_trab_str = f"{h_trab:02d}:{m_trab:02d}:{s_trab:02d}"
     horas_rec_str = f"{total_horas_recuperadas:.1f}".replace(".", ",")
 
     resultado_msg = (
-        f"Resumen para {nombre_tutor} (Matrícula: {matricula})\n"
+        f"Resumen para {nombre_asesor} (Matrícula: {matricula})\n"
         f"Mes: {mes_fmt}/{anio}\n\n"
         f"Horas Trabajadas (Entrada/Salida): {horas_trab_str}\n"
         f"Horas Recuperadas Registradas: {horas_rec_str} horas"
@@ -838,10 +885,354 @@ def calcular_horas_mensuales_accion():
     )
 
 
+# --- Función para Diálogo y Generación de Reporte Mensual Avanzado ---
+def dialogo_generar_reporte_mensual_avanzado():
+    mes = simpledialog.askinteger(
+        "Reporte Mensual Avanzado",
+        "Ingrese el número del mes (1-12):",
+        parent=ventana,
+        minvalue=1,
+        maxvalue=12,
+    )
+    if mes is None:
+        return
+    anio_actual = datetime.now().year
+    anio = simpledialog.askinteger(
+        "Reporte Mensual Avanzado",
+        f"Ingrese el año (ej: {anio_actual}):",
+        parent=ventana,
+        minvalue=2024,
+        maxvalue=anio_actual + 5,
+    )  # Ajustar según sea necesario
+    if anio is None:
+        return
+    nombre_archivo_sugerido = f"ReporteMensualAvanzado_Asesores_{mes:02d}-{anio}.xlsx"
+    ruta_archivo_reporte = filedialog.asksaveasfilename(
+        title="Guardar Reporte Mensual Avanzado Como...",
+        defaultextension=".xlsx",
+        initialfile=nombre_archivo_sugerido,
+        filetypes=(("Archivos Excel", "*.xlsx"), ("Todos los archivos", "*.*")),
+    )
+    if not ruta_archivo_reporte:
+        return
+    generar_reporte_mensual_avanzado(mes, anio, ruta_archivo_reporte)
+
+
+def generar_reporte_mensual_avanzado(mes, anio, ruta_archivo_reporte):
+    logger.info(
+        f"Iniciando reporte mensual avanzado para {mes:02d}-{anio} en '{ruta_archivo_reporte}'"
+    )
+    wb_reporte = openpyxl.Workbook()
+    wb_reporte.remove(wb_reporte.active)
+    font_cabecera = Font(name="Calibri", size=11, bold=True, color="FFFFFFFF")
+    fill_cabecera_resumen = PatternFill(
+        start_color="2F75B5", end_color="2F75B5", fill_type="solid"
+    )
+    fill_cabecera_detalle = PatternFill(
+        start_color="548235", end_color="548235", fill_type="solid"
+    )
+    alignment_centro = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    alignment_izq_wrap = Alignment(horizontal="left", vertical="center", wrap_text=True)
+    thin_border = Border(
+        left=Side(style="thin"),
+        right=Side(style="thin"),
+        top=Side(style="thin"),
+        bottom=Side(style="thin"),
+    )
+
+    conn = obtener_conexion_bd()
+    cursor = conn.cursor()
+
+    hoja_resumen = wb_reporte.create_sheet(title=f"Resumen_{mes:02d}-{anio}")
+    cabeceras_resumen = [
+        "Matrícula",
+        "Nombre Asesor",
+        "Programa",
+        "Carrera",
+        "Total Horas Trabajadas",
+        "Total Horas Recuperadas",
+        "Total Días Trabajados",
+        "Días con <= 3h o Faltas",
+        "Días Cortos/Faltas Recuperados",
+        "Días Cortos/Faltas No Recuperados",
+    ]
+    hoja_resumen.append(cabeceras_resumen)
+    for col_idx, titulo in enumerate(cabeceras_resumen, 1):
+        cell = hoja_resumen.cell(row=1, column=col_idx)
+        cell.font = font_cabecera
+        cell.fill = fill_cabecera_resumen
+        cell.alignment = alignment_centro
+        cell.border = thin_border
+
+    hoja_detalle_cortos = wb_reporte.create_sheet(
+        title=f"DetalleDiasCortos_{mes:02d}-{anio}"
+    )
+    cabeceras_detalle_cortos = [
+        "Matrícula",
+        "Nombre Asesor",
+        "Fecha Día Corto/Falta",
+        "Entrada Original",
+        "Salida Original",
+        "Horas Trabajadas Día",
+        "Nota Registro Original",
+        "¿Recuperado?",
+        "Horas Recuperadas (Total)",
+        "Fecha(s) Recuperación",
+        "Nota(s) Recuperación",
+    ]
+    hoja_detalle_cortos.append(cabeceras_detalle_cortos)
+    for col_idx, titulo in enumerate(cabeceras_detalle_cortos, 1):
+        cell = hoja_detalle_cortos.cell(row=1, column=col_idx)
+        cell.font = font_cabecera
+        cell.fill = fill_cabecera_detalle
+        cell.alignment = alignment_centro
+        cell.border = thin_border
+
+    mes_fmt_sql = f"{mes:02d}"
+    primer_dia_mes_sql = f"{anio}-{mes_fmt_sql}-01"
+    ultimo_dia_mes_num = calendar.monthrange(anio, mes)[1]
+    ultimo_dia_mes_sql = f"{anio}-{mes_fmt_sql}-{ultimo_dia_mes_num:02d}"
+
+    cursor.execute(
+        "SELECT DISTINCT fecha_registro FROM registros_asistencia WHERE fecha_registro BETWEEN ? AND ? ORDER BY fecha_registro",
+        (primer_dia_mes_sql, ultimo_dia_mes_sql),
+    )
+    dias_laborables_inferidos_obj = {
+        datetime.strptime(row["fecha_registro"], "%Y-%m-%d")
+        for row in cursor.fetchall()
+    }
+
+    cursor.execute(
+        "SELECT matricula, nombre, programa, carrera FROM asesores WHERE activo = 1 ORDER BY nombre"
+    )  # Solo asesores activos
+    lista_asesores = cursor.fetchall()
+
+    fila_actual_resumen = 2
+    fila_actual_detalle_cortos = 2
+
+    for asesor_actual in lista_asesores:
+        matricula_asesor = asesor_actual["matricula"]
+        nombre_asesor = asesor_actual["nombre"]
+        total_segundos_trabajados_mes = 0
+        total_horas_recuperadas_mes = 0.0
+        dias_trabajados_por_asesor_obj = set()
+        dias_cortos_info = []
+
+        cursor.execute(
+            "SELECT fecha_registro, hora_entrada, hora_salida, horas_recuperadas, nota FROM registros_asistencia WHERE matricula = ? AND fecha_registro BETWEEN ? AND ?",
+            (matricula_asesor, primer_dia_mes_sql, ultimo_dia_mes_sql),
+        )
+        registros_mes_asesor = cursor.fetchall()
+        registros_asesor_por_fecha_str = {
+            reg["fecha_registro"]: reg for reg in registros_mes_asesor
+        }
+
+        for fecha_laborable_obj in sorted(list(dias_laborables_inferidos_obj)):
+            fecha_laborable_str = fecha_laborable_obj.strftime("%Y-%m-%d")
+            if fecha_laborable_str in registros_asesor_por_fecha_str:
+                reg = registros_asesor_por_fecha_str[fecha_laborable_str]
+                dias_trabajados_por_asesor_obj.add(fecha_laborable_obj)
+                segundos_dia = 0
+                if reg["hora_entrada"] and reg["hora_salida"]:
+                    try:
+                        dt_e = datetime.strptime(reg["hora_entrada"], "%H:%M:%S")
+                        dt_s = datetime.strptime(reg["hora_salida"], "%H:%M:%S")
+                        diff = (dt_s - dt_e).total_seconds()
+                        if diff < 0:
+                            diff += 86400
+                        total_segundos_trabajados_mes += diff
+                        segundos_dia = diff
+                    except ValueError:
+                        logger.warning(
+                            f"Error parseando horas para {matricula_asesor} el {reg['fecha_registro']}"
+                        )
+                if reg["horas_recuperadas"]:
+                    try:
+                        total_horas_recuperadas_mes += float(
+                            str(reg["horas_recuperadas"]).replace(",", ".")
+                        )
+                    except ValueError:
+                        pass
+                if segundos_dia <= (3 * 3600):  # Incluye 0 horas si hubo registro
+                    dias_cortos_info.append(
+                        (fecha_laborable_obj, segundos_dia, reg["nota"], "Pocas Horas")
+                    )
+            else:  # Falta: no hay registro del asesor en un día laborable inferido
+                dias_cortos_info.append(
+                    (fecha_laborable_obj, 0, "Falta (Sin Registro)", "Falta")
+                )
+
+        h_trab_mes = int(total_segundos_trabajados_mes // 3600)
+        m_trab_mes = int((total_segundos_trabajados_mes % 3600) // 60)
+        s_trab_mes = int(total_segundos_trabajados_mes % 60)
+        total_horas_trab_mes_str = f"{h_trab_mes:02d}:{m_trab_mes:02d}:{s_trab_mes:02d}"
+        total_horas_rec_mes_str = f"{total_horas_recuperadas_mes:.1f}".replace(".", ",")
+        total_dias_trabajados_mes = len(dias_trabajados_por_asesor_obj)
+        num_dias_cortos_o_faltas = len(dias_cortos_info)
+        num_dias_cortos_o_faltas_recuperados = 0
+
+        for (
+            dia_data
+        ) in (
+            dias_cortos_info
+        ):  # Iterar sobre la lista combinada de días cortos y faltas
+            fecha_dia_obj, segundos_trab_dia, nota_original_dia, tipo_dia = dia_data
+            fecha_dia_str_excel = fecha_dia_obj.strftime("%d-%m-%Y")
+            fecha_dia_str_sql_recup = fecha_dia_obj.strftime("%d/%m/%Y")
+            h_dc = int(segundos_trab_dia // 3600)
+            m_dc = int((segundos_trab_dia % 3600) // 60)
+            s_dc = int(segundos_trab_dia % 60)
+            horas_trab_dia_str = f"{h_dc:02d}:{m_dc:02d}:{s_dc:02d}"
+            entrada_orig_dc = ""
+            salida_orig_dc = ""
+            if tipo_dia != "Falta":  # Si no es una falta, buscar entrada/salida
+                fecha_dia_str_original_sql = fecha_dia_obj.strftime("%Y-%m-%d")
+                if fecha_dia_str_original_sql in registros_asesor_por_fecha_str:
+                    reg_original = registros_asesor_por_fecha_str[
+                        fecha_dia_str_original_sql
+                    ]
+                    entrada_orig_dc = (
+                        reg_original["hora_entrada"] if reg_original else ""
+                    )
+                    salida_orig_dc = reg_original["hora_salida"] if reg_original else ""
+
+            cursor.execute(
+                "SELECT SUM(CAST(REPLACE(horas_recuperadas, ',', '.') AS REAL)) as total_rec, GROUP_CONCAT(fecha_registro, '; ') as fechas_rec, GROUP_CONCAT(IFNULL(nota, ''), ' | ') as notas_rec FROM registros_asistencia WHERE matricula = ? AND fecha_falta_recuperada = ? AND horas_recuperadas IS NOT NULL",
+                (matricula_asesor, fecha_dia_str_sql_recup),
+            )
+            info_recuperacion = cursor.fetchone()
+            se_recupero_str = "No"
+            horas_rec_para_falta = 0.0
+            fechas_de_recuperacion = ""
+            notas_de_recuperacion = ""
+            if (
+                info_recuperacion
+                and info_recuperacion["total_rec"] is not None
+                and info_recuperacion["total_rec"] > 0
+            ):
+                se_recupero_str = "Sí"
+                num_dias_cortos_o_faltas_recuperados += 1
+                horas_rec_para_falta = info_recuperacion["total_rec"]
+                fechas_de_recuperacion = (
+                    info_recuperacion["fechas_rec"]
+                    if info_recuperacion["fechas_rec"]
+                    else ""
+                )
+                notas_de_recuperacion = (
+                    info_recuperacion["notas_rec"].strip(" | ")
+                    if info_recuperacion["notas_rec"]
+                    else ""
+                )
+
+            datos_fila_detalle = [
+                matricula_asesor,
+                nombre_asesor,
+                fecha_dia_str_excel,
+                entrada_orig_dc,
+                salida_orig_dc,
+                horas_trab_dia_str,
+                nota_original_dia if nota_original_dia else "",
+                se_recupero_str,
+                f"{horas_rec_para_falta:.1f}".replace(".", ","),
+                fechas_de_recuperacion,
+                notas_de_recuperacion,
+            ]
+            hoja_detalle_cortos.append(datos_fila_detalle)
+            for col_idx_detalle, valor_celda in enumerate(datos_fila_detalle, 1):
+                cell = hoja_detalle_cortos.cell(
+                    row=fila_actual_detalle_cortos, column=col_idx_detalle
+                )
+                cell.border = thin_border
+                cell.alignment = (
+                    alignment_izq_wrap
+                    if col_idx_detalle in [7, 10, 11]
+                    else alignment_centro
+                )  # Notas y FechasRec a la izq
+            fila_actual_detalle_cortos += 1
+
+        num_dias_cortos_o_faltas_no_recuperados = (
+            num_dias_cortos_o_faltas - num_dias_cortos_o_faltas_recuperados
+        )
+        datos_fila_resumen = [
+            matricula_asesor,
+            nombre_asesor,
+            asesor_actual["programa"],
+            asesor_actual["carrera"],
+            total_horas_trab_mes_str,
+            total_horas_rec_mes_str,
+            total_dias_trabajados_mes,
+            num_dias_cortos_o_faltas,
+            num_dias_cortos_o_faltas_recuperados,
+            num_dias_cortos_o_faltas_no_recuperados,
+        ]
+        hoja_resumen.append(datos_fila_resumen)
+        for col_idx_resumen, valor_celda in enumerate(datos_fila_resumen, 1):
+            cell = hoja_resumen.cell(row=fila_actual_resumen, column=col_idx_resumen)
+            cell.border = thin_border
+            cell.alignment = (
+                alignment_izq_wrap if col_idx_resumen == 2 else alignment_centro
+            )
+        fila_actual_resumen += 1
+    conn.close()
+
+    for hoja in [hoja_resumen, hoja_detalle_cortos]:
+        for col in hoja.columns:
+            max_l = 0
+            col_letra = col[0].column_letter
+            for celda in col:
+                try:
+                    if celda.value:
+                        val_str = str(celda.value)
+                        if (
+                            celda.alignment
+                            and celda.alignment.wrap_text
+                            and ("\n" in val_str or "; " in val_str or " | " in val_str)
+                        ):
+                            l_celda = max(
+                                len(s)
+                                for s in val_str.replace("; ", "\n")
+                                .replace(" | ", "\n")
+                                .split("\n")
+                            )
+                        else:
+                            l_celda = len(val_str)
+                        max_l = max(max_l, l_celda)
+                except:
+                    pass
+            ancho = (max_l + 4) if max_l > 0 else 12  # Aumentado padding un poco
+            if col_letra in ["G", "K"] and hoja.title.startswith("Detalle"):
+                ancho = max(ancho, 35)  # Notas más anchas
+            elif col_letra == "J" and hoja.title.startswith("Detalle"):
+                ancho = max(ancho, 30)  # Fechas de recuperacion más anchas
+            hoja.column_dimensions[col_letra].width = ancho
+    try:
+        wb_reporte.save(ruta_archivo_reporte)
+        messagebox.showinfo(
+            "Reporte Generado",
+            f"El reporte mensual avanzado ha sido guardado en:\n{ruta_archivo_reporte}",
+        )
+        logger.info(
+            f"Reporte mensual avanzado generado y guardado: {ruta_archivo_reporte}"
+        )
+    except PermissionError:
+        messagebox.showerror(
+            "Error al Guardar",
+            f"Permiso denegado al guardar reporte en '{ruta_archivo_reporte}'.\nAsegúrese de que el archivo no esté abierto o la ubicación sea escribible.",
+        )
+        logger.error(
+            f"PermissionError al guardar reporte mensual: {ruta_archivo_reporte}"
+        )
+    except Exception as e:
+        messagebox.showerror(
+            "Error Inesperado", f"No se pudo generar o guardar el reporte mensual: {e}"
+        )
+        logger.error(f"Error generando reporte mensual: {e}", exc_info=True)
+
+
 # --- GUI Setup ---
 ventana = tk.Tk()
-ventana.title("Sistema de Registro de Asistencia de Tutores")
-ventana.geometry("550x720")  # Ajustada altura
+ventana.title("Sistema de Registro de Asistencia de Asesores")
+ventana.geometry("650x450")
 ventana.configure(bg="#F0F0F0")
 
 vcmd_matricula = (ventana.register(lambda P: validar_solo_numeros_longitud(P, 7)), "%P")
@@ -852,10 +1243,13 @@ vcmd_anio = (ventana.register(validar_anio), "%P")
 barra_menu = tk.Menu(ventana)
 menu_administracion = tk.Menu(barra_menu, tearoff=0)
 menu_administracion.add_command(
-    label="Importar/Actualizar Lista de Asesores...",
-    command=importar_tutores_desde_excel_dialogo,
+    label="Importar/Sobrescribir Lista de Asesores...",
+    command=importar_asesores_desde_excel_dialogo,
 )
-# Aquí irá la nueva opción para el reporte mensual avanzado
+menu_administracion.add_command(
+    label="Generar Reporte Mensual Avanzado...",
+    command=dialogo_generar_reporte_mensual_avanzado,
+)
 barra_menu.add_cascade(label="Administración", menu=menu_administracion)
 ventana.config(menu=barra_menu)
 
@@ -873,7 +1267,7 @@ color_boton_recup_texto = "white"
 color_boton_accion_fondo = "#0078D4"
 color_boton_accion_texto = "white"
 
-frame_principal = tk.Frame(ventana, bg=color_fondo_frame, padx=10, pady=10)
+frame_principal = tk.Frame(ventana, bg=color_fondo_frame, padx=10, pady=5)
 frame_principal.pack(fill="x")
 tk.Label(
     frame_principal,
@@ -912,15 +1306,13 @@ boton_salida = tk.Button(
 )
 boton_salida.pack(side="left", fill="x", expand=True, padx=(5, 0), pady=5)
 
-# --- Frame para Nota Opcional ---
 frame_nota = tk.Frame(ventana, bg=color_fondo_frame, padx=10)
-frame_nota.pack(fill="x", pady=(5, 0))  # Ajustar padding
+frame_nota.pack(fill="x", pady=(5, 0))
 tk.Label(
     frame_nota, text="Nota (Opcional):", font=fuente_etiqueta, bg=color_etiqueta_fondo
 ).pack(side="left", padx=(0, 5))
 entrada_nota = tk.Entry(frame_nota, font=fuente_entrada)
 entrada_nota.pack(side="left", fill="x", expand=True)
-
 
 frame_recuperacion = tk.LabelFrame(
     ventana,
@@ -928,11 +1320,11 @@ frame_recuperacion = tk.LabelFrame(
     font=("Segoe UI", 9, "bold"),
     bg=color_fondo_frame,
     padx=10,
-    pady=10,
+    pady=5,
     relief=tk.GROOVE,
     borderwidth=1,
 )
-frame_recuperacion.pack(fill="x", padx=10, pady=10)
+frame_recuperacion.pack(fill="x", padx=10)
 tk.Label(
     frame_recuperacion,
     text="Horas a Recuperar (ej: 1, 1.5):",
@@ -983,11 +1375,11 @@ frame_consulta = tk.LabelFrame(
     font=("Segoe UI", 9, "bold"),
     bg=color_fondo_frame,
     padx=10,
-    pady=10,
+    pady=5,
     relief=tk.GROOVE,
     borderwidth=1,
 )
-frame_consulta.pack(fill="x", padx=10, pady=(5, 10))
+frame_consulta.pack(fill="x", padx=10)
 tk.Label(
     frame_consulta, text="Mes (1-12):", font=fuente_etiqueta, bg=color_etiqueta_fondo
 ).grid(row=0, column=0, sticky="w", pady=2)
@@ -1023,11 +1415,11 @@ boton_calcular_horas = tk.Button(
 boton_calcular_horas.grid(row=0, column=4, sticky="ew", padx=(10, 0), pady=2)
 frame_consulta.grid_columnconfigure(4, weight=1)
 
-frame_actualizar_excel = tk.Frame(ventana, bg=color_fondo_frame, padx=10, pady=(5, 10))
+frame_actualizar_excel = tk.Frame(ventana, bg=color_fondo_frame, padx=10, pady=5)
 frame_actualizar_excel.pack(fill="x")
 boton_actualizar_excel = tk.Button(
     frame_actualizar_excel,
-    text="Actualizar Reporte Excel Manualmente",
+    text="Actualizar Reporte de Asistencias Manualmente",
     font=fuente_boton,
     bg=color_boton_accion_fondo,
     fg=color_boton_accion_texto,
@@ -1041,7 +1433,7 @@ ventana.bind("<Shift_L>", registrar_salida_accion)
 ventana.bind("<Shift_R>", registrar_salida_accion)
 
 if __name__ == "__main__":
-    inicializar_bd()  # Asegura que la columna 'nota' exista.
+    inicializar_bd()
     if not os.path.exists(NOMBRE_ARCHIVO_EXCEL):
         logger.info(
             f"Archivo Excel '{NOMBRE_ARCHIVO_EXCEL}' no encontrado. Generando al inicio."
