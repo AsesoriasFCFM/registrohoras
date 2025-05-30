@@ -16,7 +16,7 @@ Este manual está dirigido principalmente al personal de recepción y al persona
 
 Este sistema está configurado para funcionar en una computadora designada dentro del departamento.
 
-*   **Ejecución del Programa:** El programa se ejecuta directamente haciendo doble clic en un archivo con extensión `.pyw`. No requiere un proceso de instalación complejo.
+*   **Ejecución del Programa:** El programa se ejecuta directamente haciendo doble clic en el archivo `appv3.pyw`. No requiere un proceso de instalación complejo.
 *   **Dependencias:** En raras ocasiones, si el programa muestra un error mencionando una "librería" o "módulo" faltante al iniciar, podría ser necesario instalar algún componente adicional de Python. En tal caso, por favor, contacte a la persona encargada del mantenimiento del sistema.
 *   **Archivos del Sistema (¡Importante!):** El programa crea y utiliza varios archivos para su funcionamiento. Es crucial que **NO modifique, mueva o elimine manualmente** estos archivos, a menos que sea instruido por personal técnico o como parte de un procedimiento documentado (como la restauración de backups bajo supervisión).
     *   `datos_asesores.db`: Este es el archivo de base de datos principal donde se almacena toda la información de los asesores y sus registros de asistencia. ¡Es el corazón del sistema!
