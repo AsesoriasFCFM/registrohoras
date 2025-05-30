@@ -7,17 +7,17 @@ from openpyxl.styles import Font, Alignment, Border, Side, PatternFill
 import os
 import logging
 import sys
-from tkcalendar import DateEntry  # Sigue siendo útil para la fecha de falta
+from tkcalendar import DateEntry
 import sqlite3
-import calendar  # Para obtener el número de días en un mes
+import calendar
 
 NOMBRE_ARCHIVO_EXCEL = "Reporte_Tutorias.xlsx"
-NOMBRE_BD = "datos_tutores.db"  # Nombre de la base de datos SQLite
+NOMBRE_BD = "datos_tutores.db"
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    filename="app_tutores.log",  # Nombre del archivo de log
+    filename="app_tutores.log",
 )
 logger = logging.getLogger(__name__)
 
@@ -26,39 +26,38 @@ def capturar_excepcion(exc_type, exc_value, exc_traceback):
     logger.error(
         "Excepción no capturada", exc_info=(exc_type, exc_value, exc_traceback)
     )
-    # Podrías también mostrar un messagebox.showerror aquí si quieres que el usuario final vea un error genérico
-    # messagebox.showerror("Error Inesperado", "Ha ocurrido un error inesperado. Revise app_tutores.log para más detalles.")
+    messagebox.showerror(
+        "Error Inesperado",
+        "Ha ocurrido un error inesperado.\nRevise app_tutores.log para más detalles.",
+    )
 
 
 sys.excepthook = capturar_excepcion
 
 
-# --- Funciones de Base de Datos SQLite ---
 def inicializar_bd():
     conn = sqlite3.connect(NOMBRE_BD)
     cursor = conn.cursor()
-    # Tabla de Tutores
     cursor.execute(
         """
         CREATE TABLE IF NOT EXISTS tutores (
             matricula TEXT PRIMARY KEY,
             nombre TEXT NOT NULL,
-            carrera TEXT,
-            programa TEXT
+            carrera TEXT NOT NULL,
+            programa TEXT NOT NULL
         )
     """
     )
-    # Tabla de Registros de Asistencia
     cursor.execute(
         """
         CREATE TABLE IF NOT EXISTS registros_asistencia (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             matricula TEXT NOT NULL,
-            hora_entrada TEXT, /* HH:MM:SS */
-            hora_salida TEXT,  /* HH:MM:SS */
+            hora_entrada TEXT,
+            hora_salida TEXT,
             horas_recuperadas TEXT,
-            fecha_falta_recuperada TEXT, /* Fecha para la cual se recuperan horas (DD/MM/YYYY) */
-            fecha_registro TEXT NOT NULL, /* Fecha de este registro (YYYY-MM-DD) */
+            fecha_falta_recuperada TEXT,
+            fecha_registro TEXT NOT NULL,
             FOREIGN KEY (matricula) REFERENCES tutores (matricula)
         )
     """
@@ -70,11 +69,10 @@ def inicializar_bd():
 
 def obtener_conexion_bd():
     conn = sqlite3.connect(NOMBRE_BD)
-    conn.row_factory = sqlite3.Row  # Acceder a columnas por nombre
+    conn.row_factory = sqlite3.Row
     return conn
 
 
-# --- Función para Regenerar el Excel desde la BD ---
 def regenerar_excel_desde_bd(mostrar_mensaje_exito=False):
     logger.info(f"Regenerando reporte Excel: {NOMBRE_ARCHIVO_EXCEL}")
     wb = openpyxl.Workbook()
@@ -83,7 +81,6 @@ def regenerar_excel_desde_bd(mostrar_mensaje_exito=False):
     conn = obtener_conexion_bd()
     cursor = conn.cursor()
 
-    # Estilos
     font_cabecera = Font(name="Calibri", size=11, bold=True, color="FFFFFFFF")
     fill_cabecera = PatternFill(
         start_color="4F81BD", end_color="4F81BD", fill_type="solid"
@@ -96,7 +93,6 @@ def regenerar_excel_desde_bd(mostrar_mensaje_exito=False):
         bottom=Side(style="thin"),
     )
 
-    # 1. Crear hoja "Asesores"
     ws_asesores = wb.create_sheet(title="Asesores")
     cabeceras_asesores = ["Nombre", "Matrícula", "Carrera", "Programa"]
     ws_asesores.append(cabeceras_asesores)
@@ -126,12 +122,10 @@ def regenerar_excel_desde_bd(mostrar_mensaje_exito=False):
             )
     logger.info("Hoja 'Asesores' generada.")
 
-    # 2. Crear hojas de registro diarias
     cursor.execute(
         "SELECT DISTINCT fecha_registro FROM registros_asistencia ORDER BY fecha_registro DESC"
     )
     fechas_distintas = [row["fecha_registro"] for row in cursor.fetchall()]
-
     cabeceras_diarias = [
         "Nombre",
         "Matrícula",
@@ -145,11 +139,10 @@ def regenerar_excel_desde_bd(mostrar_mensaje_exito=False):
     ]
     for fecha_registro_str in fechas_distintas:
         try:
-            # Convertir YYYY-MM-DD a DD-MM-YYYY para el título de la hoja si se prefiere
             dt_obj = datetime.strptime(fecha_registro_str, "%Y-%m-%d")
             titulo_hoja = dt_obj.strftime("%d-%m-%Y")
         except ValueError:
-            titulo_hoja = fecha_registro_str  # Usar como está si hay error
+            titulo_hoja = fecha_registro_str
 
         ws_dia = wb.create_sheet(title=titulo_hoja)
         ws_dia.append(cabeceras_diarias)
@@ -218,11 +211,12 @@ def regenerar_excel_desde_bd(mostrar_mensaje_exito=False):
                 try:
                     if celda.value:
                         longitud_celda = len(str(celda.value))
-                        # Las cabeceras con wrap_text pueden necesitar más espacio
                         if celda.row == 1 and celda.alignment.wrap_text:
-                            longitud_celda = max(
-                                len(s) for s in str(celda.value).split()
-                            )  # Longitud de la palabra más larga
+                            longitud_celda = (
+                                max(len(s) for s in str(celda.value).split())
+                                if str(celda.value)
+                                else 0
+                            )
                         max_longitud = max(max_longitud, longitud_celda)
                 except:
                     pass
@@ -253,11 +247,9 @@ def regenerar_excel_desde_bd(mostrar_mensaje_exito=False):
         )
 
 
-# --- Funciones de la GUI ---
 def limpiar_campos():
     entrada_matricula.delete(0, tk.END)
     entrada_horas_rec.delete(0, tk.END)
-    # Restablecer fecha de falta a "ayer" por defecto
     entrada_fecha_falta_rec.set_date(datetime.today() - timedelta(days=1))
     entrada_matricula.focus_set()
 
@@ -373,9 +365,7 @@ def registrar_salida_accion(evento=None):
         return
 
     hora_salida_str = datetime.now().strftime("%H:%M:%S")
-    horas_rec_val = (
-        entrada_horas_rec.get().strip()
-    )  # Permite añadir/actualizar recuperación al salir
+    horas_rec_val = entrada_horas_rec.get().strip()
     fecha_falta_val = (
         entrada_fecha_falta_rec.get_date().strftime("%d/%m/%Y")
         if horas_rec_val
@@ -385,7 +375,7 @@ def registrar_salida_accion(evento=None):
     try:
         update_query = "UPDATE registros_asistencia SET hora_salida = ?"
         params = [hora_salida_str]
-        if horas_rec_val:  # Si se ingresan horas de recuperación al salir
+        if horas_rec_val:
             update_query += ", horas_recuperadas = ?, fecha_falta_recuperada = ?"
             params.extend([horas_rec_val, fecha_falta_val])
         update_query += " WHERE id = ?"
@@ -455,7 +445,6 @@ def registrar_recuperacion_standalone_accion(evento=None):
         conn.close()
         return
 
-    # Asocia con la entrada abierta más reciente de HOY
     fecha_hoy_str = datetime.today().strftime("%Y-%m-%d")
     cursor.execute(
         """
@@ -492,7 +481,7 @@ def registrar_recuperacion_standalone_accion(evento=None):
         logger.info(
             f"Recuperación (standalone): {horas}h para {fecha_falta_str} por {matricula}, ID registro {registro_abierto['id']}."
         )
-        limpiar_campos()  # Limpiar solo matrícula y campos de recuperación
+        limpiar_campos()
         entrada_horas_rec.delete(0, tk.END)
         entrada_fecha_falta_rec.set_date(datetime.today() - timedelta(days=1))
         regenerar_excel_desde_bd()
@@ -517,78 +506,101 @@ def importar_tutores_desde_excel_dialogo():
 
     try:
         wb_maestro = openpyxl.load_workbook(ruta_archivo_maestro, read_only=True)
-        # Intentar encontrar hoja "Asesores" o usar la activa
-        nombre_hoja_maestra = (
-            "Asesores"
-            if "Asesores" in wb_maestro.sheetnames
-            else wb_maestro.sheetnames[0]
-        )
-        ws_maestro = wb_maestro[nombre_hoja_maestra]
+
+        # Asegurar que la hoja "Asesores" existe
+        if "Asesores" not in wb_maestro.sheetnames:
+            messagebox.showerror(
+                "Error de Hoja",
+                "El archivo maestro de Excel debe contener una hoja llamada 'Asesores'.",
+            )
+            return
+        ws_maestro = wb_maestro["Asesores"]
 
         conn = obtener_conexion_bd()
         cursor = conn.cursor()
 
         importados = 0
         actualizados = 0
-        # Columnas esperadas: Nombre, Matricula, Carrera, Programa (índices 0, 1, 2, 3)
-        # Leer cabeceras para mapeo dinámico (más robusto)
-        cabeceras = [celda.value for celda in ws_maestro[1]]
+
+        cabeceras_excel = [celda.value for celda in ws_maestro[1]]
+        cabeceras_esperadas = [
+            "Nombre",
+            "Matrícula",
+            "Carrera",
+            "Programa",
+        ]  # También podría ser "Matricula"
+
+        # Mapear cabeceras (más flexible a "Matricula" o "Matrícula")
+        mapa_indices = {}
         try:
-            idx_nombre = cabeceras.index("Nombre")
-            idx_matricula = cabeceras.index("Matricula")  # O "Matrícula"
-            idx_carrera = cabeceras.index("Carrera")
-            idx_programa = cabeceras.index("Programa")
-        except ValueError:
-            # Tratar de encontrar "Matrícula" si "Matricula" falla
-            if "Matrícula" in cabeceras:
-                idx_matricula = cabeceras.index("Matrícula")
-            else:
-                messagebox.showerror(
-                    "Error de Formato",
-                    "El archivo maestro debe tener columnas: Nombre, Matricula (o Matrícula), Carrera, Programa en la primera fila.",
-                )
-                conn.close()
-                return
+            for cab_esp in cabeceras_esperadas:
+                if cab_esp == "Matrícula":  # Caso especial para matrícula
+                    try:
+                        mapa_indices[cab_esp] = cabeceras_excel.index("Matrícula")
+                    except ValueError:
+                        mapa_indices[cab_esp] = cabeceras_excel.index(
+                            "Matricula"
+                        )  # Intentar sin acento
+                else:
+                    mapa_indices[cab_esp] = cabeceras_excel.index(cab_esp)
+        except ValueError as e:
+            col_faltante = str(e).split("'")[
+                1
+            ]  # Extraer el nombre de la columna del mensaje de error
+            messagebox.showerror(
+                "Error de Formato de Cabecera",
+                f"La columna requerida '{col_faltante}' no se encontró en la primera fila de la hoja 'Asesores'.\n"
+                f"Las columnas deben ser: {', '.join(cabeceras_esperadas)}.",
+            )
+            conn.close()
+            return
 
         for num_fila, fila_valores in enumerate(
             ws_maestro.iter_rows(min_row=2, values_only=True), start=2
         ):
-            if not fila_valores or not fila_valores[idx_matricula]:
+            # Obtener valores usando el mapa_indices
+            matricula_val = (
+                fila_valores[mapa_indices["Matrícula"]]
+                if "Matrícula" in mapa_indices
+                else None
+            )
+
+            # Si los 4 campos son requeridos, verificar que todos tengan valor
+            if not matricula_val:
                 logger.warning(f"Importación: Saltando fila {num_fila} sin matrícula.")
                 continue
 
-            matricula = str(fila_valores[idx_matricula]).strip().upper()
-            nombre = (
-                str(fila_valores[idx_nombre]).strip()
-                if fila_valores[idx_nombre]
-                else "N/A"
-            )
-            carrera = (
-                str(fila_valores[idx_carrera]).strip()
-                if idx_carrera < len(fila_valores) and fila_valores[idx_carrera]
-                else ""
-            )
-            programa = (
-                str(fila_valores[idx_programa]).strip()
-                if idx_programa < len(fila_valores) and fila_valores[idx_programa]
-                else ""
-            )
+            nombre_val = fila_valores[mapa_indices["Nombre"]]
+            carrera_val = fila_valores[mapa_indices["Carrera"]]
+            programa_val = fila_valores[mapa_indices["Programa"]]
+
+            # Validar que los campos requeridos no estén vacíos en la fila
+            if not all([nombre_val, carrera_val, programa_val]):
+                logger.warning(
+                    f"Importación: Saltando fila {num_fila} con datos faltantes para matrícula {matricula_val}. Todos los campos (Nombre, Carrera, Programa) son requeridos además de Matrícula."
+                )
+                continue
+
+            matricula_str = str(matricula_val).strip().upper()
+            nombre_str = str(nombre_val).strip()
+            carrera_str = str(carrera_val).strip()
+            programa_str = str(programa_val).strip()
 
             cursor.execute(
-                "SELECT matricula FROM tutores WHERE matricula = ?", (matricula,)
+                "SELECT matricula FROM tutores WHERE matricula = ?", (matricula_str,)
             )
             existe = cursor.fetchone()
 
             if existe:
                 cursor.execute(
                     "UPDATE tutores SET nombre = ?, carrera = ?, programa = ? WHERE matricula = ?",
-                    (nombre, carrera, programa, matricula),
+                    (nombre_str, carrera_str, programa_str, matricula_str),
                 )
                 actualizados += 1
             else:
                 cursor.execute(
                     "INSERT INTO tutores (matricula, nombre, carrera, programa) VALUES (?, ?, ?, ?)",
-                    (matricula, nombre, carrera, programa),
+                    (matricula_str, nombre_str, carrera_str, programa_str),
                 )
                 importados += 1
 
@@ -607,7 +619,7 @@ def importar_tutores_desde_excel_dialogo():
         )
         logger.error(f"Error importando tutores: {e}", exc_info=True)
     finally:
-        if "conn" in locals() and conn:
+        if "conn" in locals() and conn:  # type: ignore
             conn.close()
 
 
@@ -622,9 +634,7 @@ def calcular_horas_mensuales_accion():
     try:
         mes = int(entrada_mes_consulta.get())
         anio = int(entrada_anio_consulta.get())
-        if not (
-            1 <= mes <= 12 and 2000 <= anio <= datetime.now().year + 5
-        ):  # Validación básica
+        if not (1 <= mes <= 12 and 2000 <= anio <= datetime.now().year + 5):
             raise ValueError("Mes o año inválido")
     except ValueError:
         messagebox.showerror(
@@ -635,8 +645,6 @@ def calcular_horas_mensuales_accion():
 
     conn = obtener_conexion_bd()
     cursor = conn.cursor()
-
-    # Verificar que el tutor exista
     cursor.execute("SELECT nombre FROM tutores WHERE matricula = ?", (matricula,))
     tutor = cursor.fetchone()
     if not tutor:
@@ -648,8 +656,7 @@ def calcular_horas_mensuales_accion():
         return
 
     nombre_tutor = tutor["nombre"]
-    # Formato de fecha en BD es YYYY-MM-DD, mes debe ser MM
-    mes_str = f"{mes:02}"  # ej. 03 para Marzo
+    mes_str = f"{mes:02}"
     primer_dia_mes = f"{anio}-{mes_str}-01"
     ultimo_dia_mes_num = calendar.monthrange(anio, mes)[1]
     ultimo_dia_mes = f"{anio}-{mes_str}-{ultimo_dia_mes_num:02}"
@@ -664,43 +671,41 @@ def calcular_horas_mensuales_accion():
     )
 
     total_segundos_trabajados = 0
-    total_horas_recuperadas = 0
+    total_horas_recuperadas = 0.0  # Usar float para horas recuperadas
 
     for registro in cursor.fetchall():
-        # Calcular horas trabajadas
         if registro["hora_entrada"] and registro["hora_salida"]:
             try:
                 dt_entrada = datetime.strptime(registro["hora_entrada"], "%H:%M:%S")
                 dt_salida = datetime.strptime(registro["hora_salida"], "%H:%M:%S")
                 diff = (dt_salida - dt_entrada).total_seconds()
                 if diff < 0:
-                    diff += 86400  # Cruce de medianoche
+                    diff += 86400
                 total_segundos_trabajados += diff
             except ValueError:
                 logger.warning(
                     f"Formato de hora inválido en registro para {matricula} en {mes_str}/{anio}"
                 )
 
-        # Sumar horas recuperadas
         if registro["horas_recuperadas"]:
             try:
-                total_horas_recuperadas += float(registro["horas_recuperadas"])
+                # Intentar reemplazar coma por punto si se usa como separador decimal
+                valor_recuperadas_str = str(registro["horas_recuperadas"]).replace(
+                    ",", "."
+                )
+                total_horas_recuperadas += float(valor_recuperadas_str)
             except ValueError:
                 logger.warning(
                     f"Valor de horas_recuperadas inválido para {matricula}: {registro['horas_recuperadas']}"
                 )
-
     conn.close()
 
-    # Convertir segundos a formato HH:MM:SS
     h_trab = int(total_segundos_trabajados // 3600)
     m_trab = int((total_segundos_trabajados % 3600) // 60)
     s_trab = int(total_segundos_trabajados % 60)
 
     horas_trab_str = f"{h_trab:02}:{m_trab:02}:{s_trab:02}"
-    horas_rec_str = f"{total_horas_recuperadas:.2f}".replace(
-        ".", ","
-    )  # Formato con coma decimal
+    horas_rec_str = f"{total_horas_recuperadas:.2f}".replace(".", ",")
 
     resultado_msg = (
         f"Resumen para {nombre_tutor} (Matrícula: {matricula})\n"
@@ -715,31 +720,25 @@ def calcular_horas_mensuales_accion():
     )
 
 
-# --- Configuración de la Interfaz Gráfica ---
 ventana = tk.Tk()
 ventana.title("Sistema de Registro de Asistencia de Tutores")
-ventana.geometry("550x680")  # Ajustar tamaño
-ventana.configure(bg="#F0F0F0")  # Color de fondo general
+ventana.geometry("550x680")
+ventana.configure(bg="#F0F0F0")
 
-# --- Menú ---
 barra_menu = tk.Menu(ventana)
 menu_administracion = tk.Menu(barra_menu, tearoff=0)
 menu_administracion.add_command(
     label="Importar/Actualizar Lista de Asesores desde Excel...",
     command=importar_tutores_desde_excel_dialogo,
 )
-menu_administracion.add_command(
-    label="Forzar Actualización de Reporte Excel",
-    command=lambda: regenerar_excel_desde_bd(mostrar_mensaje_exito=True),
-)
+# Eliminada la opción redundante de "Forzar Actualización de Reporte Excel" del menú
 barra_menu.add_cascade(label="Administración", menu=menu_administracion)
 ventana.config(menu=barra_menu)
 
-# Estilos comunes
 fuente_etiqueta = ("Segoe UI", 10)
 fuente_entrada = ("Segoe UI", 10)
 fuente_boton = ("Segoe UI", 10, "bold")
-color_fondo_frame = "#F0F0F0"  # Mismo que ventana
+color_fondo_frame = "#F0F0F0"
 color_etiqueta_fondo = color_fondo_frame
 color_boton_entrada_fondo = "#4CAF50"
 color_boton_entrada_texto = "white"
@@ -750,11 +749,8 @@ color_boton_recup_texto = "white"
 color_boton_accion_fondo = "#0078D4"
 color_boton_accion_texto = "white"
 
-
-# --- Frame Principal para Matrícula y Acciones ---
 frame_principal = tk.Frame(ventana, bg=color_fondo_frame, padx=10, pady=10)
 frame_principal.pack(fill="x")
-
 tk.Label(
     frame_principal,
     text="Matrícula del Asesor:",
@@ -762,7 +758,6 @@ tk.Label(
     bg=color_etiqueta_fondo,
 ).grid(row=0, column=0, sticky="w", pady=(0, 5))
 entrada_matricula = tk.Entry(frame_principal, font=fuente_entrada, width=20)
-# Permitir alfanuméricos y hasta 10 caracteres para matrícula
 entrada_matricula.config(
     validate="key",
     validatecommand=(
@@ -771,12 +766,10 @@ entrada_matricula.config(
     ),
 )
 entrada_matricula.grid(row=0, column=1, sticky="ew", pady=(0, 5))
-frame_principal.grid_columnconfigure(1, weight=1)  # Hacer que el entry se expanda
+frame_principal.grid_columnconfigure(1, weight=1)
 
-# --- Frame para botones de Entrada/Salida ---
 frame_botones_principales = tk.Frame(ventana, bg=color_fondo_frame, padx=10)
 frame_botones_principales.pack(fill="x")
-
 boton_entrada = tk.Button(
     frame_botones_principales,
     text="Registrar Entrada (Enter)",
@@ -786,7 +779,6 @@ boton_entrada = tk.Button(
     command=registrar_entrada_accion,
 )
 boton_entrada.pack(side="left", fill="x", expand=True, padx=(0, 5), pady=5)
-
 boton_salida = tk.Button(
     frame_botones_principales,
     text="Registrar Salida (Shift+Enter)",
@@ -797,8 +789,6 @@ boton_salida = tk.Button(
 )
 boton_salida.pack(side="left", fill="x", expand=True, padx=(5, 0), pady=5)
 
-
-# --- Frame para Registro de Recuperación (opcional) ---
 frame_recuperacion = tk.LabelFrame(
     ventana,
     text=" Horas de Recuperación (Opcional) ",
@@ -810,7 +800,6 @@ frame_recuperacion = tk.LabelFrame(
     borderwidth=1,
 )
 frame_recuperacion.pack(fill="x", padx=10, pady=10)
-
 tk.Label(
     frame_recuperacion,
     text="Horas a Recuperar (ej: 1, 1.5):",
@@ -818,7 +807,6 @@ tk.Label(
     bg=color_etiqueta_fondo,
 ).grid(row=0, column=0, sticky="w", pady=2)
 entrada_horas_rec = tk.Entry(frame_recuperacion, font=fuente_entrada, width=8)
-# Permitir números y un punto decimal, hasta 4 caracteres (ej: 99.5)
 entrada_horas_rec.config(
     validate="key",
     validatecommand=(
@@ -831,7 +819,6 @@ entrada_horas_rec.config(
     ),
 )
 entrada_horas_rec.grid(row=0, column=1, sticky="w", padx=5, pady=2)
-
 tk.Label(
     frame_recuperacion,
     text="Fecha de Falta (para la cual se recupera):",
@@ -843,15 +830,12 @@ entrada_fecha_falta_rec = DateEntry(
     font=fuente_entrada,
     width=12,
     date_pattern="dd/mm/yyyy",
-    state="readonly",  # 'readonly' para que solo se elija del calendario
-    maxdate=datetime.today(),  # Permitir recuperar para una falta de hoy mismo (si aplica)
-    locale="es_MX",  # Importante para el formato de fecha
+    state="readonly",
+    maxdate=datetime.today(),
+    locale="es_MX",
 )
-entrada_fecha_falta_rec.set_date(
-    datetime.today() - timedelta(days=1)
-)  # Por defecto ayer
+entrada_fecha_falta_rec.set_date(datetime.today() - timedelta(days=1))
 entrada_fecha_falta_rec.grid(row=1, column=1, sticky="w", padx=5, pady=2)
-
 boton_recuperacion_standalone = tk.Button(
     frame_recuperacion,
     text="Registrar Solo Recuperación\n(Asociar a Entrada Actual)",
@@ -866,8 +850,6 @@ boton_recuperacion_standalone.grid(
 )
 frame_recuperacion.grid_columnconfigure(2, weight=1)
 
-
-# --- Frame para Consulta de Horas Mensuales ---
 frame_consulta = tk.LabelFrame(
     ventana,
     text=" Consulta de Horas Mensuales por Asesor ",
@@ -879,21 +861,18 @@ frame_consulta = tk.LabelFrame(
     borderwidth=1,
 )
 frame_consulta.pack(fill="x", padx=10, pady=(5, 10))
-
 tk.Label(
     frame_consulta, text="Mes (1-12):", font=fuente_etiqueta, bg=color_etiqueta_fondo
 ).grid(row=0, column=0, sticky="w", pady=2)
 entrada_mes_consulta = tk.Entry(frame_consulta, font=fuente_entrada, width=5)
-entrada_mes_consulta.insert(0, str(datetime.now().month))  # Mes actual por defecto
+entrada_mes_consulta.insert(0, str(datetime.now().month))
 entrada_mes_consulta.grid(row=0, column=1, sticky="w", padx=5, pady=2)
-
 tk.Label(
     frame_consulta, text="Año (YYYY):", font=fuente_etiqueta, bg=color_etiqueta_fondo
 ).grid(row=0, column=2, sticky="w", padx=(10, 0), pady=2)
 entrada_anio_consulta = tk.Entry(frame_consulta, font=fuente_entrada, width=7)
-entrada_anio_consulta.insert(0, str(datetime.now().year))  # Año actual por defecto
+entrada_anio_consulta.insert(0, str(datetime.now().year))
 entrada_anio_consulta.grid(row=0, column=3, sticky="w", padx=5, pady=2)
-
 boton_calcular_horas = tk.Button(
     frame_consulta,
     text="Calcular Horas",
@@ -903,10 +882,8 @@ boton_calcular_horas = tk.Button(
     command=calcular_horas_mensuales_accion,
 )
 boton_calcular_horas.grid(row=0, column=4, sticky="ew", padx=(10, 0), pady=2)
-frame_consulta.grid_columnconfigure(4, weight=1)  # Hacer que el botón se expanda
+frame_consulta.grid_columnconfigure(4, weight=1)
 
-
-# --- Botón para Actualizar Excel Manualmente (Adicional al menú) ---
 frame_actualizar_excel = tk.Frame(ventana, bg=color_fondo_frame, padx=10, pady=(5, 10))
 frame_actualizar_excel.pack(fill="x")
 boton_actualizar_excel = tk.Button(
@@ -919,23 +896,17 @@ boton_actualizar_excel = tk.Button(
 )
 boton_actualizar_excel.pack(fill="x")
 
-
-# Atajos de teclado
 ventana.bind("<Return>", registrar_entrada_accion)
-ventana.bind("<KP_Enter>", registrar_entrada_accion)  # Para Numpad Enter
+ventana.bind("<KP_Enter>", registrar_entrada_accion)
 ventana.bind("<Shift-Return>", registrar_salida_accion)
 
-# Estado inicial
 if __name__ == "__main__":
     inicializar_bd()
-    # Generar el Excel al inicio si no existe o para asegurar que está actualizado
     if not os.path.exists(NOMBRE_ARCHIVO_EXCEL):
         logger.info(
             f"Archivo Excel '{NOMBRE_ARCHIVO_EXCEL}' no encontrado. Generando al inicio."
         )
-        regenerar_excel_desde_bd(
-            mostrar_mensaje_exito=False
-        )  # No mostrar mensaje al inicio
+        regenerar_excel_desde_bd(mostrar_mensaje_exito=False)
 
     entrada_matricula.focus_set()
     ventana.mainloop()
