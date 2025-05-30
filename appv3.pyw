@@ -184,7 +184,7 @@ def regenerar_excel_desde_bd(mostrar_mensaje_exito=False):
         cell.border = thin_border
 
     cursor.execute(
-        "SELECT nombre, matricula, carrera, programa FROM tutores ORDER BY nombre"
+        "SELECT nombre, matricula, carrera, programa FROM tutores ORDER BY programa, carrera, nombre"
     )
     for idx, row_data in enumerate(cursor.fetchall(), 2):
         ws_asesores.append(
@@ -239,7 +239,7 @@ def regenerar_excel_desde_bd(mostrar_mensaje_exito=False):
             FROM registros_asistencia ra
             JOIN tutores t ON ra.matricula = t.matricula
             WHERE ra.fecha_registro = ?
-            ORDER BY t.nombre, ra.hora_entrada
+            ORDER BY ra.hora_entrada, t.nombre
         """,
             (fecha_registro_str,),
         )
@@ -314,7 +314,7 @@ def regenerar_excel_desde_bd(mostrar_mensaje_exito=False):
     except PermissionError:
         messagebox.showerror(
             "Error al Guardar Excel",
-            f"Permiso denegado al guardar '{NOMBRE_ARCHIVO_EXCEL}'.\nAsegúrate de que no esté abierto en otro programa.",
+            f"Permiso denegado al guardar '{NOMBRE_ARCHIVO_EXCEL}'.\nAsegúrate de que no esté abierto en otro programa. Después, intenta regenerar el archivo excel MANUALMENTE.",
         )
         logger.error(f"PermissionError al guardar {NOMBRE_ARCHIVO_EXCEL}.")
     except Exception as e:
@@ -1045,7 +1045,7 @@ boton_calcular_horas = tk.Button(
 boton_calcular_horas.grid(row=0, column=4, sticky="ew", padx=(10, 0), pady=2)
 frame_consulta.grid_columnconfigure(4, weight=1)
 
-frame_actualizar_excel = tk.Frame(ventana, bg=color_fondo_frame, padx=10, pady=(5, 10))
+frame_actualizar_excel = tk.Frame(ventana, bg=color_fondo_frame, padx=10, pady=5)
 frame_actualizar_excel.pack(fill="x")
 boton_actualizar_excel = tk.Button(
     frame_actualizar_excel,
