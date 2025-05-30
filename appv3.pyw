@@ -35,13 +35,92 @@ def capturar_excepcion(exc_type, exc_value, exc_traceback):
 sys.excepthook = capturar_excepcion
 
 
+# --- Funciones de Validación para Entradas (validate='key') ---
+def validar_solo_numeros_longitud(valor_nuevo, longitud_max):
+    """Permite solo números y hasta una longitud específica."""
+    if valor_nuevo == "":  # Permitir campo vacío (para borrar)
+        return True
+    if not valor_nuevo.isdigit():
+        return False
+    if len(valor_nuevo) > longitud_max:
+        return False
+    return True
+
+
+def validar_horas_recuperar(valor_nuevo):
+    """Permite números, un punto decimal, y valida el rango (0-8)."""
+    if valor_nuevo == "":
+        return True
+
+    # Permitir solo dígitos y un punto decimal
+    if not all(c.isdigit() or c == "." for c in valor_nuevo):
+        return False
+    if valor_nuevo.count(".") > 1:
+        return False
+
+    # Prevenir más de 1 dígito después del punto (ej. 1.55) si es necesario
+    if "." in valor_nuevo:
+        partes = valor_nuevo.split(".")
+        if len(partes[1]) > 1:  # Solo un decimal (ej. 1.5, no 1.55)
+            # O permitir más si es necesario, ej. len(partes[1]) > 2 para 1.25
+            # return False # Descomentar si se quiere restringir a 1 decimal
+            pass
+
+    # Validar longitud total (ej. "8.0" son 3 caracteres, "8" es 1)
+    if (
+        len(valor_nuevo) > 3 and "." not in valor_nuevo
+    ):  # "123" no permitido si max es 8
+        return False
+    if len(valor_nuevo) > 4 and "." in valor_nuevo:  # "12.34" no permitido
+        return False
+
+    try:
+        valor_float = float(valor_nuevo)
+        if not (0 <= valor_float <= 8):
+            return False
+    except ValueError:
+        # Esto no debería ocurrir si la validación de caracteres anterior funciona
+        # pero como salvaguarda, si no es un float válido (ej. "1.2.3")
+        if valor_nuevo != "." and not valor_nuevo.endswith(
+            ".0"
+        ):  # Permitir escribir "." o "1."
+            # Ojo: permitir "8." es importante para poder luego escribir "8.0"
+            # Esta parte de la validación en tiempo real es compleja para floats.
+            # La validación principal se hará al enviar.
+            pass
+    return True
+
+
+def validar_mes(valor_nuevo):
+    if valor_nuevo == "":
+        return True
+    if not valor_nuevo.isdigit():
+        return False
+    if len(valor_nuevo) > 2:
+        return False
+    # No se valida el rango 1-12 aquí, se hará al enviar, para permitir escribir "0" temporalmente
+    return True
+
+
+def validar_anio(valor_nuevo):
+    if valor_nuevo == "":
+        return True
+    if not valor_nuevo.isdigit():
+        return False
+    if len(valor_nuevo) > 4:
+        return False
+    # No se valida el rango aquí, se hará al enviar
+    return True
+
+
+# --- Funciones de Base de Datos SQLite ---
 def inicializar_bd():
     conn = sqlite3.connect(NOMBRE_BD)
     cursor = conn.cursor()
     cursor.execute(
         """
         CREATE TABLE IF NOT EXISTS tutores (
-            matricula TEXT PRIMARY KEY,
+            matricula TEXT PRIMARY KEY, /* Sigue siendo TEXT para flexibilidad futura, pero validado a 7 dígitos */
             nombre TEXT NOT NULL,
             carrera TEXT NOT NULL,
             programa TEXT NOT NULL
@@ -73,6 +152,7 @@ def obtener_conexion_bd():
     return conn
 
 
+# --- Función para Regenerar el Excel desde la BD (sin cambios relevantes aquí) ---
 def regenerar_excel_desde_bd(mostrar_mensaje_exito=False):
     logger.info(f"Regenerando reporte Excel: {NOMBRE_ARCHIVO_EXCEL}")
     wb = openpyxl.Workbook()
@@ -247,6 +327,7 @@ def regenerar_excel_desde_bd(mostrar_mensaje_exito=False):
         )
 
 
+# --- Funciones de la GUI ---
 def limpiar_campos():
     entrada_matricula.delete(0, tk.END)
     entrada_horas_rec.delete(0, tk.END)
@@ -255,9 +336,9 @@ def limpiar_campos():
 
 
 def registrar_entrada_accion(evento=None):
-    matricula = entrada_matricula.get().strip().upper()
-    if not matricula:
-        messagebox.showerror("Error de Entrada", "La matrícula no puede estar vacía.")
+    matricula = entrada_matricula.get().strip()  # No .upper() si es solo numérico
+    if not (matricula.isdigit() and len(matricula) == 7):
+        messagebox.showerror("Error de Entrada", "La matrícula debe ser de 7 números.")
         return
 
     conn = obtener_conexion_bd()
@@ -292,12 +373,34 @@ def registrar_entrada_accion(evento=None):
         return
 
     hora_entrada_str = datetime.now().strftime("%H:%M:%S")
-    horas_rec_val = entrada_horas_rec.get().strip()
-    fecha_falta_val = (
-        entrada_fecha_falta_rec.get_date().strftime("%d/%m/%Y")
-        if horas_rec_val
-        else None
-    )
+
+    horas_rec_val_str = entrada_horas_rec.get().strip()
+    fecha_falta_val = None
+    if horas_rec_val_str:
+        try:
+            # Validar horas recuperación al enviar
+            horas_rec_float = float(
+                horas_rec_val_str.replace(",", ".")
+            )  # Permitir coma o punto
+            if not (
+                0 < horas_rec_float <= 8
+            ):  # 0 no tiene sentido, pero podría ser 0.0 si el campo se limpia
+                messagebox.showerror(
+                    "Entrada Inválida",
+                    "Las horas a recuperar deben estar entre 0.1 y 8.",
+                )
+                conn.close()
+                return
+            horas_rec_val_str = f"{horas_rec_float:.1f}"  # Guardar con un decimal
+            fecha_falta_val = entrada_fecha_falta_rec.get_date().strftime("%d/%m/%Y")
+        except ValueError:
+            messagebox.showerror(
+                "Entrada Inválida", "Formato de horas a recuperar inválido."
+            )
+            conn.close()
+            return
+    else:  # Si el campo está vacío
+        horas_rec_val_str = None
 
     try:
         cursor.execute(
@@ -309,19 +412,19 @@ def registrar_entrada_accion(evento=None):
                 matricula,
                 hora_entrada_str,
                 fecha_hoy_str,
-                horas_rec_val if horas_rec_val else None,
-                fecha_falta_val if horas_rec_val else None,
+                horas_rec_val_str,
+                fecha_falta_val,
             ),
         )
         conn.commit()
         mensaje_exito = f"Entrada registrada para {asesor['nombre']} ({asesor['carrera']} - {asesor['programa']}) a las {hora_entrada_str}"
-        if horas_rec_val:
+        if horas_rec_val_str:
             mensaje_exito += (
-                f"\nCon {horas_rec_val}h de recuperación para {fecha_falta_val}."
+                f"\nCon {horas_rec_val_str}h de recuperación para {fecha_falta_val}."
             )
         messagebox.showinfo("Registro Exitoso", mensaje_exito)
         logger.info(
-            f"Entrada: {matricula} a las {hora_entrada_str}. Recuperación: {horas_rec_val or 'N/A'}"
+            f"Entrada: {matricula} a las {hora_entrada_str}. Recuperación: {horas_rec_val_str or 'N/A'}"
         )
         limpiar_campos()
         regenerar_excel_desde_bd()
@@ -336,10 +439,19 @@ def registrar_entrada_accion(evento=None):
         conn.close()
 
 
-def registrar_salida_accion(evento=None):
-    matricula = entrada_matricula.get().strip().upper()
-    if not matricula:
-        messagebox.showerror("Error de Entrada", "La matrícula no puede estar vacía.")
+def registrar_salida_accion(evento=None):  # evento es importante para el keybind
+    # Solo reaccionar si el evento es de tipo tecla Shift (L o R)
+    if evento and evento.keysym not in ("Shift_L", "Shift_R"):
+        # logger.debug(f"registrar_salida_accion ignorado, evento: {evento.keysym if evento else 'None'}")
+        return  # No es un evento de Shift, ignorar.
+    # logger.debug(f"registrar_salida_accion activado por: {evento.keysym if evento else 'Click'}")
+
+    matricula = entrada_matricula.get().strip()
+    if not (matricula.isdigit() and len(matricula) == 7):
+        messagebox.showerror(
+            "Error de Entrada",
+            "La matrícula debe ser de 7 números para registrar salida.",
+        )
         return
 
     conn = obtener_conexion_bd()
@@ -365,19 +477,38 @@ def registrar_salida_accion(evento=None):
         return
 
     hora_salida_str = datetime.now().strftime("%H:%M:%S")
-    horas_rec_val = entrada_horas_rec.get().strip()
-    fecha_falta_val = (
-        entrada_fecha_falta_rec.get_date().strftime("%d/%m/%Y")
-        if horas_rec_val
-        else None
-    )
+
+    horas_rec_val_str = entrada_horas_rec.get().strip()
+    fecha_falta_val = None
+    if horas_rec_val_str:
+        try:
+            horas_rec_float = float(horas_rec_val_str.replace(",", "."))
+            if not (0 < horas_rec_float <= 8):
+                messagebox.showerror(
+                    "Entrada Inválida",
+                    "Las horas a recuperar deben estar entre 0.1 y 8.",
+                )
+                conn.close()
+                return
+            horas_rec_val_str = f"{horas_rec_float:.1f}"
+            fecha_falta_val = entrada_fecha_falta_rec.get_date().strftime("%d/%m/%Y")
+        except ValueError:
+            messagebox.showerror(
+                "Entrada Inválida", "Formato de horas a recuperar inválido."
+            )
+            conn.close()
+            return
+    else:
+        horas_rec_val_str = None
 
     try:
         update_query = "UPDATE registros_asistencia SET hora_salida = ?"
         params = [hora_salida_str]
-        if horas_rec_val:
+        # Solo actualizar recuperación si se ingresó algo en el campo
+        if horas_rec_val_str is not None:  # Puede ser "0.0" si se limpia y valida así
             update_query += ", horas_recuperadas = ?, fecha_falta_recuperada = ?"
-            params.extend([horas_rec_val, fecha_falta_val])
+            params.extend([horas_rec_val_str, fecha_falta_val])
+
         update_query += " WHERE id = ?"
         params.append(registro_abierto["id"])
 
@@ -395,12 +526,12 @@ def registrar_salida_accion(evento=None):
 
         msg = f"Salida registrada para {registro_abierto['nombre']}."
         msg += f"\nTiempo trabajado: {h:02}:{m:02}:{s:02}."
-        if horas_rec_val:
-            msg += f"\nHoras recuperación ({horas_rec_val}h) para {fecha_falta_val} también registradas/actualizadas."
+        if horas_rec_val_str:
+            msg += f"\nHoras recuperación ({horas_rec_val_str}h) para {fecha_falta_val} también registradas/actualizadas."
 
         messagebox.showinfo("Registro Exitoso", msg)
         logger.info(
-            f"Salida: {matricula} a las {hora_salida_str}. Duración: {h:02}:{m:02}:{s:02}. Recuperación: {horas_rec_val or 'N/A'}"
+            f"Salida: {matricula} a las {hora_salida_str}. Duración: {h:02}:{m:02}:{s:02}. Recuperación: {horas_rec_val_str or 'N/A'}"
         )
         limpiar_campos()
         regenerar_excel_desde_bd()
@@ -416,21 +547,37 @@ def registrar_salida_accion(evento=None):
 
 
 def registrar_recuperacion_standalone_accion(evento=None):
-    matricula = entrada_matricula.get().strip().upper()
-    horas = entrada_horas_rec.get().strip()
+    matricula = entrada_matricula.get().strip()
+    if not (matricula.isdigit() and len(matricula) == 7):
+        messagebox.showerror("Error de Entrada", "La matrícula debe ser de 7 números.")
+        return
+
+    horas_str = entrada_horas_rec.get().strip()
+    if not horas_str:
+        messagebox.showerror(
+            "Campos Requeridos", "Las horas a recuperar son requeridas."
+        )
+        return
     try:
-        fecha_falta_dt = entrada_fecha_falta_rec.get_date()
-        fecha_falta_str = fecha_falta_dt.strftime("%d/%m/%Y")
+        horas_float = float(horas_str.replace(",", "."))
+        if not (0 < horas_float <= 8):
+            messagebox.showerror(
+                "Entrada Inválida", "Las horas a recuperar deben estar entre 0.1 y 8."
+            )
+            return
+        horas_val_db = f"{horas_float:.1f}"  # Formato para DB
     except ValueError:
         messagebox.showerror(
-            "Error de Fecha", "Fecha de falta para recuperación inválida."
+            "Entrada Inválida", "Formato de horas a recuperar inválido."
         )
         return
 
-    if not matricula or not horas or not fecha_falta_str:
+    try:
+        fecha_falta_dt = entrada_fecha_falta_rec.get_date()
+        fecha_falta_str = fecha_falta_dt.strftime("%d/%m/%Y")
+    except ValueError:  # Aunque DateEntry debería prevenir esto
         messagebox.showerror(
-            "Campos Requeridos",
-            "Matrícula, horas a recuperar y fecha de falta son requeridos para esta operación.",
+            "Error de Fecha", "Fecha de falta para recuperación inválida."
         )
         return
 
@@ -471,19 +618,17 @@ def registrar_recuperacion_standalone_accion(evento=None):
             SET horas_recuperadas = ?, fecha_falta_recuperada = ?
             WHERE id = ?
         """,
-            (horas, fecha_falta_str, registro_abierto["id"]),
+            (horas_val_db, fecha_falta_str, registro_abierto["id"]),
         )
         conn.commit()
         messagebox.showinfo(
             "Recuperación Registrada",
-            f"Recuperación de {horas} hr(s) para {fecha_falta_str} registrada para {asesor['nombre']} (asociada a la entrada actual).",
+            f"Recuperación de {horas_val_db} hr(s) para {fecha_falta_str} registrada para {asesor['nombre']} (asociada a la entrada actual).",
         )
         logger.info(
-            f"Recuperación (standalone): {horas}h para {fecha_falta_str} por {matricula}, ID registro {registro_abierto['id']}."
+            f"Recuperación (standalone): {horas_val_db}h para {fecha_falta_str} por {matricula}, ID registro {registro_abierto['id']}."
         )
         limpiar_campos()
-        entrada_horas_rec.delete(0, tk.END)
-        entrada_fecha_falta_rec.set_date(datetime.today() - timedelta(days=1))
         regenerar_excel_desde_bd()
     except sqlite3.Error as e:
         messagebox.showerror(
@@ -506,8 +651,6 @@ def importar_tutores_desde_excel_dialogo():
 
     try:
         wb_maestro = openpyxl.load_workbook(ruta_archivo_maestro, read_only=True)
-
-        # Asegurar que la hoja "Asesores" existe
         if "Asesores" not in wb_maestro.sheetnames:
             messagebox.showerror(
                 "Error de Hoja",
@@ -518,70 +661,63 @@ def importar_tutores_desde_excel_dialogo():
 
         conn = obtener_conexion_bd()
         cursor = conn.cursor()
-
         importados = 0
         actualizados = 0
-
         cabeceras_excel = [celda.value for celda in ws_maestro[1]]
-        cabeceras_esperadas = [
-            "Nombre",
-            "Matrícula",
-            "Carrera",
-            "Programa",
-        ]  # También podría ser "Matricula"
+        cabeceras_esperadas_map = {
+            "Nombre": None,
+            "Matrícula": None,
+            "Carrera": None,
+            "Programa": None,
+        }
 
-        # Mapear cabeceras (más flexible a "Matricula" o "Matrícula")
-        mapa_indices = {}
-        try:
-            for cab_esp in cabeceras_esperadas:
-                if cab_esp == "Matrícula":  # Caso especial para matrícula
+        for cab_key in cabeceras_esperadas_map.keys():
+            try:
+                if cab_key == "Matrícula":
                     try:
-                        mapa_indices[cab_esp] = cabeceras_excel.index("Matrícula")
+                        cabeceras_esperadas_map[cab_key] = cabeceras_excel.index(
+                            "Matrícula"
+                        )
                     except ValueError:
-                        mapa_indices[cab_esp] = cabeceras_excel.index(
+                        cabeceras_esperadas_map[cab_key] = cabeceras_excel.index(
                             "Matricula"
-                        )  # Intentar sin acento
+                        )
                 else:
-                    mapa_indices[cab_esp] = cabeceras_excel.index(cab_esp)
-        except ValueError as e:
-            col_faltante = str(e).split("'")[
-                1
-            ]  # Extraer el nombre de la columna del mensaje de error
-            messagebox.showerror(
-                "Error de Formato de Cabecera",
-                f"La columna requerida '{col_faltante}' no se encontró en la primera fila de la hoja 'Asesores'.\n"
-                f"Las columnas deben ser: {', '.join(cabeceras_esperadas)}.",
-            )
-            conn.close()
-            return
+                    cabeceras_esperadas_map[cab_key] = cabeceras_excel.index(cab_key)
+            except ValueError:
+                messagebox.showerror(
+                    "Error de Formato de Cabecera",
+                    f"La columna requerida '{cab_key}' no se encontró en la hoja 'Asesores'.\n"
+                    f"Cabeceras esperadas: Nombre, Matrícula/Matricula, Carrera, Programa.",
+                )
+                conn.close()
+                return
 
         for num_fila, fila_valores in enumerate(
             ws_maestro.iter_rows(min_row=2, values_only=True), start=2
         ):
-            # Obtener valores usando el mapa_indices
-            matricula_val = (
-                fila_valores[mapa_indices["Matrícula"]]
-                if "Matrícula" in mapa_indices
-                else None
-            )
+            matricula_val = fila_valores[cabeceras_esperadas_map["Matrícula"]]
+            nombre_val = fila_valores[cabeceras_esperadas_map["Nombre"]]
+            carrera_val = fila_valores[cabeceras_esperadas_map["Carrera"]]
+            programa_val = fila_valores[cabeceras_esperadas_map["Programa"]]
 
-            # Si los 4 campos son requeridos, verificar que todos tengan valor
-            if not matricula_val:
-                logger.warning(f"Importación: Saltando fila {num_fila} sin matrícula.")
-                continue
-
-            nombre_val = fila_valores[mapa_indices["Nombre"]]
-            carrera_val = fila_valores[mapa_indices["Carrera"]]
-            programa_val = fila_valores[mapa_indices["Programa"]]
-
-            # Validar que los campos requeridos no estén vacíos en la fila
-            if not all([nombre_val, carrera_val, programa_val]):
+            if not matricula_val or not (
+                str(matricula_val).strip().isdigit()
+                and len(str(matricula_val).strip()) == 7
+            ):
                 logger.warning(
-                    f"Importación: Saltando fila {num_fila} con datos faltantes para matrícula {matricula_val}. Todos los campos (Nombre, Carrera, Programa) son requeridos además de Matrícula."
+                    f"Importación: Saltando fila {num_fila}, matrícula '{matricula_val}' inválida (debe ser 7 números)."
+                )
+                continue
+            if not all(
+                [nombre_val, carrera_val, programa_val]
+            ):  # Asegurar que los otros campos no estén vacíos
+                logger.warning(
+                    f"Importación: Saltando fila {num_fila} para matrícula {matricula_val}, campos Nombre, Carrera o Programa vacíos."
                 )
                 continue
 
-            matricula_str = str(matricula_val).strip().upper()
+            matricula_str = str(matricula_val).strip()  # Ya validado como 7 dígitos
             nombre_str = str(nombre_val).strip()
             carrera_str = str(carrera_val).strip()
             programa_str = str(programa_val).strip()
@@ -590,7 +726,6 @@ def importar_tutores_desde_excel_dialogo():
                 "SELECT matricula FROM tutores WHERE matricula = ?", (matricula_str,)
             )
             existe = cursor.fetchone()
-
             if existe:
                 cursor.execute(
                     "UPDATE tutores SET nombre = ?, carrera = ?, programa = ? WHERE matricula = ?",
@@ -624,23 +759,33 @@ def importar_tutores_desde_excel_dialogo():
 
 
 def calcular_horas_mensuales_accion():
-    matricula = entrada_matricula.get().strip().upper()
-    if not matricula:
+    matricula = entrada_matricula.get().strip()
+    if not (matricula.isdigit() and len(matricula) == 7):
         messagebox.showerror(
-            "Matrícula Requerida", "Por favor, ingrese la matrícula del tutor."
+            "Matrícula Requerida",
+            "Por favor, ingrese la matrícula del tutor (7 números).",
         )
         return
 
     try:
-        mes = int(entrada_mes_consulta.get())
-        anio = int(entrada_anio_consulta.get())
-        if not (1 <= mes <= 12 and 2000 <= anio <= datetime.now().year + 5):
-            raise ValueError("Mes o año inválido")
-    except ValueError:
-        messagebox.showerror(
-            "Entrada Inválida",
-            "Por favor, ingrese un mes (1-12) y un año (ej. 2023) válidos.",
-        )
+        mes_str = entrada_mes_consulta.get()
+        anio_str = entrada_anio_consulta.get()
+        if not (mes_str.isdigit() and 1 <= int(mes_str) <= 12 and len(mes_str) <= 2):
+            messagebox.showerror(
+                "Entrada Inválida", "Mes debe ser un número entre 1 y 12 (ej: 7 o 07)."
+            )
+            return
+        mes = int(mes_str)
+
+        if not (anio_str.isdigit() and len(anio_str) == 4 and int(anio_str) >= 2024):
+            messagebox.showerror(
+                "Entrada Inválida",
+                "Año debe ser un número de 4 dígitos desde 2024 en adelante (ej: 2024).",
+            )
+            return
+        anio = int(anio_str)
+    except ValueError:  # Redundante si las validaciones anteriores son buenas
+        messagebox.showerror("Entrada Inválida", "Mes o año con formato incorrecto.")
         return
 
     conn = obtener_conexion_bd()
@@ -656,10 +801,10 @@ def calcular_horas_mensuales_accion():
         return
 
     nombre_tutor = tutor["nombre"]
-    mes_str = f"{mes:02}"
-    primer_dia_mes = f"{anio}-{mes_str}-01"
+    mes_fmt = f"{mes:02}"  # Formato MM para la consulta SQL
+    primer_dia_mes = f"{anio}-{mes_fmt}-01"
     ultimo_dia_mes_num = calendar.monthrange(anio, mes)[1]
-    ultimo_dia_mes = f"{anio}-{mes_str}-{ultimo_dia_mes_num:02}"
+    ultimo_dia_mes = f"{anio}-{mes_fmt}-{ultimo_dia_mes_num:02}"
 
     cursor.execute(
         """
@@ -671,7 +816,7 @@ def calcular_horas_mensuales_accion():
     )
 
     total_segundos_trabajados = 0
-    total_horas_recuperadas = 0.0  # Usar float para horas recuperadas
+    total_horas_recuperadas = 0.0
 
     for registro in cursor.fetchall():
         if registro["hora_entrada"] and registro["hora_salida"]:
@@ -684,12 +829,11 @@ def calcular_horas_mensuales_accion():
                 total_segundos_trabajados += diff
             except ValueError:
                 logger.warning(
-                    f"Formato de hora inválido en registro para {matricula} en {mes_str}/{anio}"
+                    f"Formato de hora inválido en registro para {matricula} en {mes_fmt}/{anio}"
                 )
 
         if registro["horas_recuperadas"]:
             try:
-                # Intentar reemplazar coma por punto si se usa como separador decimal
                 valor_recuperadas_str = str(registro["horas_recuperadas"]).replace(
                     ",", "."
                 )
@@ -705,25 +849,35 @@ def calcular_horas_mensuales_accion():
     s_trab = int(total_segundos_trabajados % 60)
 
     horas_trab_str = f"{h_trab:02}:{m_trab:02}:{s_trab:02}"
-    horas_rec_str = f"{total_horas_recuperadas:.2f}".replace(".", ",")
+    horas_rec_str = f"{total_horas_recuperadas:.1f}".replace(
+        ".", ","
+    )  # Un decimal para horas recuperadas
 
     resultado_msg = (
         f"Resumen para {nombre_tutor} (Matrícula: {matricula})\n"
-        f"Mes: {mes_str}/{anio}\n\n"
+        f"Mes: {mes_fmt}/{anio}\n\n"
         f"Horas Trabajadas (Entrada/Salida): {horas_trab_str}\n"
         f"Horas Recuperadas Registradas: {horas_rec_str} horas"
     )
 
     messagebox.showinfo("Horas Mensuales Calculadas", resultado_msg)
     logger.info(
-        f"Consulta horas: {matricula}, Mes: {mes_str}/{anio}. Trabajadas: {horas_trab_str}, Recuperadas: {horas_rec_str}h"
+        f"Consulta horas: {matricula}, Mes: {mes_fmt}/{anio}. Trabajadas: {horas_trab_str}, Recuperadas: {horas_rec_str}h"
     )
 
 
+# --- GUI Setup ---
 ventana = tk.Tk()
 ventana.title("Sistema de Registro de Asistencia de Tutores")
 ventana.geometry("550x680")
 ventana.configure(bg="#F0F0F0")
+
+# --- Comandos de Validación Registrados ---
+vcmd_matricula = (ventana.register(lambda P: validar_solo_numeros_longitud(P, 7)), "%P")
+vcmd_horas_rec = (ventana.register(validar_horas_recuperar), "%P")
+vcmd_mes = (ventana.register(validar_mes), "%P")
+vcmd_anio = (ventana.register(validar_anio), "%P")
+
 
 barra_menu = tk.Menu(ventana)
 menu_administracion = tk.Menu(barra_menu, tearoff=0)
@@ -731,7 +885,6 @@ menu_administracion.add_command(
     label="Importar/Actualizar Lista de Asesores desde Excel...",
     command=importar_tutores_desde_excel_dialogo,
 )
-# Eliminada la opción redundante de "Forzar Actualización de Reporte Excel" del menú
 barra_menu.add_cascade(label="Administración", menu=menu_administracion)
 ventana.config(menu=barra_menu)
 
@@ -753,17 +906,16 @@ frame_principal = tk.Frame(ventana, bg=color_fondo_frame, padx=10, pady=10)
 frame_principal.pack(fill="x")
 tk.Label(
     frame_principal,
-    text="Matrícula del Asesor:",
+    text="Matrícula del Asesor (7 números):",
     font=fuente_etiqueta,
     bg=color_etiqueta_fondo,
 ).grid(row=0, column=0, sticky="w", pady=(0, 5))
-entrada_matricula = tk.Entry(frame_principal, font=fuente_entrada, width=20)
-entrada_matricula.config(
+entrada_matricula = tk.Entry(
+    frame_principal,
+    font=fuente_entrada,
+    width=20,
     validate="key",
-    validatecommand=(
-        ventana.register(lambda P: (P.isalnum() or P == "") and len(P) <= 10),
-        "%P",
-    ),
+    validatecommand=vcmd_matricula,
 )
 entrada_matricula.grid(row=0, column=1, sticky="ew", pady=(0, 5))
 frame_principal.grid_columnconfigure(1, weight=1)
@@ -779,19 +931,21 @@ boton_entrada = tk.Button(
     command=registrar_entrada_accion,
 )
 boton_entrada.pack(side="left", fill="x", expand=True, padx=(0, 5), pady=5)
+# El botón de salida ya no necesita comando, el keybind lo maneja.
 boton_salida = tk.Button(
     frame_botones_principales,
-    text="Registrar Salida (Shift+Enter)",
+    text="Registrar Salida (Shift)",
     font=fuente_boton,
     bg=color_boton_salida_fondo,
     fg=color_boton_salida_texto,
-    command=registrar_salida_accion,
-)
+    command=lambda: registrar_salida_accion(None),
+)  # Para click, pasa evento=None
 boton_salida.pack(side="left", fill="x", expand=True, padx=(5, 0), pady=5)
+
 
 frame_recuperacion = tk.LabelFrame(
     ventana,
-    text=" Horas de Recuperación (Opcional) ",
+    text=" Horas de Recuperación (Opcional, máx. 8h) ",
     font=("Segoe UI", 9, "bold"),
     bg=color_fondo_frame,
     padx=10,
@@ -806,17 +960,12 @@ tk.Label(
     font=fuente_etiqueta,
     bg=color_etiqueta_fondo,
 ).grid(row=0, column=0, sticky="w", pady=2)
-entrada_horas_rec = tk.Entry(frame_recuperacion, font=fuente_entrada, width=8)
-entrada_horas_rec.config(
+entrada_horas_rec = tk.Entry(
+    frame_recuperacion,
+    font=fuente_entrada,
+    width=8,
     validate="key",
-    validatecommand=(
-        ventana.register(
-            lambda P: all(c.isdigit() or c == "." for c in P)
-            and P.count(".") <= 1
-            and len(P) <= 4
-        ),
-        "%P",
-    ),
+    validatecommand=vcmd_horas_rec,
 )
 entrada_horas_rec.grid(row=0, column=1, sticky="w", padx=5, pady=2)
 tk.Label(
@@ -831,10 +980,10 @@ entrada_fecha_falta_rec = DateEntry(
     width=12,
     date_pattern="dd/mm/yyyy",
     state="readonly",
-    maxdate=datetime.today(),
+    maxdate=datetime.today() - timedelta(days=1),  # Solo ayer o antes
     locale="es_MX",
 )
-entrada_fecha_falta_rec.set_date(datetime.today() - timedelta(days=1))
+# entrada_fecha_falta_rec.set_date(datetime.today() - timedelta(days=1)) # Ya se establece en maxdate
 entrada_fecha_falta_rec.grid(row=1, column=1, sticky="w", padx=5, pady=2)
 boton_recuperacion_standalone = tk.Button(
     frame_recuperacion,
@@ -864,13 +1013,25 @@ frame_consulta.pack(fill="x", padx=10, pady=(5, 10))
 tk.Label(
     frame_consulta, text="Mes (1-12):", font=fuente_etiqueta, bg=color_etiqueta_fondo
 ).grid(row=0, column=0, sticky="w", pady=2)
-entrada_mes_consulta = tk.Entry(frame_consulta, font=fuente_entrada, width=5)
+entrada_mes_consulta = tk.Entry(
+    frame_consulta,
+    font=fuente_entrada,
+    width=5,
+    validate="key",
+    validatecommand=vcmd_mes,
+)
 entrada_mes_consulta.insert(0, str(datetime.now().month))
 entrada_mes_consulta.grid(row=0, column=1, sticky="w", padx=5, pady=2)
 tk.Label(
     frame_consulta, text="Año (YYYY):", font=fuente_etiqueta, bg=color_etiqueta_fondo
 ).grid(row=0, column=2, sticky="w", padx=(10, 0), pady=2)
-entrada_anio_consulta = tk.Entry(frame_consulta, font=fuente_entrada, width=7)
+entrada_anio_consulta = tk.Entry(
+    frame_consulta,
+    font=fuente_entrada,
+    width=7,
+    validate="key",
+    validatecommand=vcmd_anio,
+)
 entrada_anio_consulta.insert(0, str(datetime.now().year))
 entrada_anio_consulta.grid(row=0, column=3, sticky="w", padx=5, pady=2)
 boton_calcular_horas = tk.Button(
@@ -898,7 +1059,8 @@ boton_actualizar_excel.pack(fill="x")
 
 ventana.bind("<Return>", registrar_entrada_accion)
 ventana.bind("<KP_Enter>", registrar_entrada_accion)
-ventana.bind("<Shift-Return>", registrar_salida_accion)
+ventana.bind("<Shift_L>", registrar_salida_accion)  # Shift Izquierdo
+ventana.bind("<Shift_R>", registrar_salida_accion)  # Shift Derecho
 
 if __name__ == "__main__":
     inicializar_bd()
