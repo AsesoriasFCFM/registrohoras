@@ -869,7 +869,7 @@ def calcular_horas_mensuales_accion():
 # --- GUI Setup ---
 ventana = tk.Tk()
 ventana.title("Sistema de Registro de Asistencia de Tutores")
-ventana.geometry("550x680")
+ventana.geometry("650x680")
 ventana.configure(bg="#F0F0F0")
 
 # --- Comandos de Validación Registrados ---
